@@ -56,8 +56,8 @@ namespace QRCode
             ErrorCorrection = errorCorrection;
             
             // encode the data into a bitstream
-            List<BitArray> bitstream = Encode(data);
-            int bitstreamLength = bitstream.Sum(b => b.Length);
+            int bitstreamLength;
+            List<BitArray> bitstream = Encode(data, out bitstreamLength);
 
             // find the best-fit QR version
             int capacity = ChooseVersion(bitstreamLength);
@@ -238,61 +238,8 @@ namespace QRCode
         }
         #endregion
 
-        #region Arithmetic
-        private int GetSymbolDimension()
-        {
-            switch (Type)
-            {
-                case SymbolType.Micro:
-                    return 9 + (2 * Version);
-                case SymbolType.Normal:
-                    return 17 + (4 * Version);
-            }
-
-            throw new InvalidOperationException();
-        }
-
-        private int GetQuietZoneDimension()
-        {
-            switch (Type)
-            {
-                case SymbolType.Micro:
-                    return 2;
-                case SymbolType.Normal:
-                    return 4;
-            }
-
-            throw new InvalidOperationException();
-        }
-
-        private IEnumerable<Tuple<int, int>> GetAlignmentPatternLocations()
-        {
-            switch (Type)
-            {
-                case SymbolType.Micro:
-                    break;
-
-                case SymbolType.Normal:
-                    var locations = AlignmentPatternLocations[Version-1];
-                    for (int i=0; i<locations.Length; i++)
-                    {
-                        for (int j=i; j<locations.Length; j++)
-                        {
-                            yield return Tuple.Create(locations[i], locations[j]);
-                            if (i != j)
-                                yield return Tuple.Create(locations[j], locations[i]);
-                        }
-                    }
-                    break;
-
-                default:
-                    throw new InvalidOperationException();
-            }
-        }
-        #endregion
-
         #region Encoding
-        private List<BitArray> Encode(byte[] data)
+        private List<BitArray> Encode(byte[] data, out int bitstreamLength)
         {
             int idx = 0;
 
@@ -311,6 +258,7 @@ namespace QRCode
             }
 
             bits.Add(EncodeMode(Mode.Terminator));
+            bitstreamLength = bits.Sum(b => b.Length);
 
             return bits;
         }
@@ -434,6 +382,57 @@ namespace QRCode
         #endregion
 
         #region Helpers
+        private int GetSymbolDimension()
+        {
+            switch (Type)
+            {
+                case SymbolType.Micro:
+                    return 9 + (2 * Version);
+                case SymbolType.Normal:
+                    return 17 + (4 * Version);
+            }
+
+            throw new InvalidOperationException();
+        }
+
+        private int GetQuietZoneDimension()
+        {
+            switch (Type)
+            {
+                case SymbolType.Micro:
+                    return 2;
+                case SymbolType.Normal:
+                    return 4;
+            }
+
+            throw new InvalidOperationException();
+        }
+
+        private IEnumerable<Tuple<int, int>> GetAlignmentPatternLocations()
+        {
+            switch (Type)
+            {
+                case SymbolType.Micro:
+                    break;
+
+                case SymbolType.Normal:
+                    var locations = AlignmentPatternLocations[Version - 1];
+                    for (int i = 0; i < locations.Length; i++)
+                    {
+                        for (int j = i; j < locations.Length; j++)
+                        {
+                            yield return Tuple.Create(locations[i], locations[j]);
+                            if (i != j)
+                                yield return Tuple.Create(locations[j], locations[i]);
+                        }
+                    }
+                    break;
+
+                default:
+                    throw new InvalidOperationException();
+            }
+        }
+
         private IEnumerable<Mode> AvailableModes
         {
             get
@@ -706,30 +705,6 @@ namespace QRCode
         #endregion
 
         #region Data
-        /*
-        private static IEnumerable<char> GetValidCharacters(Mode mode)
-        {
-            switch (mode) 
-            {
-                case Mode.Numeric:
-                    return new char[] 
-                    {
-                        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' 
-                    };
-                case Mode.AlphaNumeric:
-                    return new char[] 
-                    {
-                        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-                        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
-                        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-                        ' ', '$', '%', '*', '+', '-', '.', '/', ':'
-                    };
-                default:
-                    throw new ArgumentException("charSet");
-            }
-        }
-        */
-
         private static int[][] AlignmentPatternLocations = new int[][]
         {
             new int[] { },
