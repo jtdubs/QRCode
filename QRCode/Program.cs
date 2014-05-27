@@ -8,7 +8,7 @@ namespace QRCode
     {
         public static void Main(string[] args)
         {
-            var code = new QRCode("Hello, world!", SymbolType.Normal, ErrorCorrection.H);
+            var code = new QRCode("HELLO WORLD", SymbolType.Normal, ErrorCorrection.H);
             code.Show();
 
             Console.ReadLine();
