@@ -7,6 +7,13 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Text;
 
+/*
+ * TODO:
+ * QR Micro is probably not working
+ * QR M1 is DEFINITELY no working.  No support for "error detection only" mode.
+ * Mask penalties don't seem to match spec.
+ */
+
 namespace QRCode
 {
     /// <summary>
