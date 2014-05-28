@@ -9,12 +9,18 @@ using System.Text;
 
 namespace QRCode
 {
+    /// <summary>
+    /// Type of an individual module (pixel) of a QR symbol.
+    /// </summary>
     public enum ModuleType
     {
         Light, 
         Dark
     }
     
+    /// <summary>
+    /// QR encoding modes
+    /// </summary>
     public enum Mode
     {
         ECI,
@@ -28,12 +34,18 @@ namespace QRCode
         Terminator
     }
     
+    /// <summary>
+    /// QR symbol types
+    /// </summary>
     public enum SymbolType 
     {
         Micro, 
         Normal 
     }
 
+    /// <summary>
+    /// QR error correction modes
+    /// </summary>
     public enum ErrorCorrection
     {
         [Description("L (7%)")]
@@ -46,25 +58,48 @@ namespace QRCode
         H
     }
 
+    /// <summary>
+    /// A QR symbol
+    /// </summary>
     public class QRCode
     {
+        /// <summary>
+        /// Create a QR symbol that represents the supplied `data' in the indicated symbol type, with the indicated level of error correction.
+        /// </summary>
+        /// <param name="data"></param>
+        /// <param name="type"></param>
+        /// <param name="errorCorrection"></param>
         public QRCode(string data, SymbolType type, ErrorCorrection errorCorrection)
         {
             Type = type;
             ErrorCorrection = errorCorrection;
             
             var bits = Encode(data);
-            Prep();
+            Reserve();
             Fill(bits);
             var mask = Mask();
             AddFormatInformation(mask);
             AddVersionInformation();
         }
 
+        /// <summary>
+        /// Type of QR symbol (normal or micro)
+        /// </summary>
         public SymbolType Type { get; private set; }
+
+        /// <summary>
+        /// Version of QR symbol (1-5 or 1-40, depending on type)
+        /// </summary>
         public int Version { get; private set; }
+
+        /// <summary>
+        /// Level of error correction in this symbol
+        /// </summary>
         public ErrorCorrection ErrorCorrection { get; private set; }
 
+        /// <summary>
+        /// A textual description of a QR code's metadata
+        /// </summary>
         public string Description
         {
             get
@@ -72,35 +107,23 @@ namespace QRCode
                 switch (Type)
                 {
                     case SymbolType.Micro:
-                        return String.Format("QR M{0}", Version);
+                        return String.Format("QR M{0}-{1}", Version, ErrorCorrection);
                     case SymbolType.Normal:
-                        return String.Format("QR {0}", Version);
+                        return String.Format("QR {0}-{1}", Version, ErrorCorrection);
                 }
 
                 throw new InvalidOperationException();
             }
         }
 
-        public void Show()
+        /// <summary>
+        /// Save the QR code as an image
+        /// </summary>
+        /// <param name="path">Path of image file to create.</param>
+        /// <param name="scale">Size of a module, in pixels.</param>
+        public void Save(string imagePath, int scale)
         {
-            for (int y = 0; y < fullDim; y++)
-            {
-                for (int x = 0; x < fullDim; x++)
-                {
-                    if (accessCount[qz+x, qz+y] == 0)
-                        Console.Write("_");
-                    else if (modules[qz+x, qz+y] == ModuleType.Dark)
-                        Console.Write("#");
-                    else
-                        Console.Write(".");
-                }
-                Console.WriteLine();
-            }
-        }
-
-        public void Save(string path, int scale)
-        {
-            using (Bitmap b = new Bitmap(fullDim * scale, fullDim * scale))
+            using (Bitmap b = new Bitmap(dim * scale, dim * scale))
             {
                 using (Graphics g = Graphics.FromImage(b))
                 {
@@ -108,7 +131,7 @@ namespace QRCode
 
                     for (int x = 0; x < dim; x++)
                     {
-                        for (int y= 0 ; y < dim; y++)
+                        for (int y = 0 ; y < dim; y++)
                         {
                             if (Get(x, y) == ModuleType.Dark)
                             {
@@ -118,17 +141,25 @@ namespace QRCode
                     }
                 }
 
-                b.Save(path);
+                b.Save(imagePath);
             }
         }
 
         #region Steps
+        /// <summary>
+        /// Perform the following steps
+        /// - Choose Mode and Version to fit data content
+        /// - Encode data
+        /// - Generate code words and blocks
+        /// - Generate error correction words
+        /// - Interleave data blocks and error correction blocks
+        /// </summary>
+        /// <param name="data">The data to encode.</param>
+        /// <returns>The fully-encoded data.</returns>
         private BitArray Encode(string data)
         {
-            int idx, i;
-
             #region Mode and Version choice
-            var mode = Mode.Byte;
+            Mode mode;
 
             if (data.All(c => Char.IsDigit(c)))
             {
@@ -150,87 +181,132 @@ namespace QRCode
             #region Code word creation
             // encode data as series of bit arrays
             List<BitArray> bits = new List<BitArray>();
+
+            // add mode indicator
             bits.Add(EncodeMode(mode));
+
+            // add character count
             bits.Add(EncodeCharacterCount(mode, data.Length));
 
+            // perform mode-specific data encoding
             switch (mode)
             {
                 case Mode.Byte:
-                    var bytes = Encoding.UTF8.GetBytes(data);
-                    foreach (var by in bytes)
                     {
-                        var b = new BitArray(8, false);
-                        for (i = 0; i < 8; i++)
-                            if ((by & (0x80 >> i)) != 0)
+                        // retrieve UTF8 encoding of data
+                        var bytes = Encoding.UTF8.GetBytes(data);
+
+                        var b = new BitArray(8 * bytes.Length, false);
+
+                        // encode as a bit array, traversing each byte from MSB to LSB
+                        for (int i = 0; i < bytes.Length * 8; i++)
+                            if ((bytes[i / 8] & (0x80 >> (i % 8))) != 0)
                                 b[i] = true;
+
                         bits.Add(b);
                     }
                     break;
 
                 case Mode.Numeric:
-                    for (idx = 0; idx < data.Length - 2; idx += 3)
                     {
-                        int x = AlphaNumericTable[data[idx]] * 100 + AlphaNumericTable[data[idx + 1]] * 10 + AlphaNumericTable[data[idx + 2]];
-                        var b = new BitArray(10, false);
-                        for (i = 0; i < 10; i++)
-                            if ((x & (0x200 >> i)) != 0)
-                                b[i] = true;
-                        bits.Add(b);
-                    }
+                        int idx;
 
-                    if (idx < data.Length - 1)
-                    {
-                        int x = AlphaNumericTable[data[idx]] * 10 + AlphaNumericTable[data[idx + 1]];
-                        idx += 2;
-                        var b = new BitArray(7, false);
-                        for (i = 0; i < 7; i++)
-                            if ((x & (0x40 >> i)) != 0)
-                                b[i] = true;
-                        bits.Add(b);
-                    }
+                        // for every triple of digits
+                        for (idx = 0; idx < data.Length - 2; idx += 3)
+                        {
+                            // encode them as a 3-digit decimal number
+                            int x = AlphaNumericTable[data[idx]] * 100 + AlphaNumericTable[data[idx + 1]] * 10 + AlphaNumericTable[data[idx + 2]];
 
-                    if (idx < data.Length)
-                    {
-                        int x = AlphaNumericTable[data[idx]];
-                        idx += 1;
-                        var b = new BitArray(4, false);
-                        for (i = 0; i < 4; i++)
-                            if ((x & (0x08 >> i)) != 0)
-                                b[i] = true;
-                        bits.Add(b);
+                            // convert to a 10-bit array, MSB first
+                            var b = new BitArray(10, false);
+                            for (int i = 0; i < 10; i++)
+                                if ((x & (0x200 >> i)) != 0)
+                                    b[i] = true;
+
+                            bits.Add(b);
+                        }
+
+                        // if there is a remaining pair of digits
+                        if (idx < data.Length - 1)
+                        {
+                            // encode them as a 2-digit decimal number
+                            int x = AlphaNumericTable[data[idx]] * 10 + AlphaNumericTable[data[idx + 1]];
+                            idx += 2;
+
+                            // convert to a 7-bit array, MSB first
+                            var b = new BitArray(7, false);
+                            for (int i = 0; i < 7; i++)
+                                if ((x & (0x40 >> i)) != 0)
+                                    b[i] = true;
+
+                            bits.Add(b);
+                        }
+
+                        // if there is a remaining digit
+                        if (idx < data.Length)
+                        {
+                            // encode it as a decimal number
+                            int x = AlphaNumericTable[data[idx]];
+                            idx += 1;
+
+                            // convert to a 4-bit array, MSB first
+                            var b = new BitArray(4, false);
+                            for (int i = 0; i < 4; i++)
+                                if ((x & (0x08 >> i)) != 0)
+                                    b[i] = true;
+
+                            bits.Add(b);
+                        }
                     }
                     break;
 
                 case Mode.AlphaNumeric:
-                    for (idx = 0; idx < data.Length - 1; idx += 2)
                     {
-                        int x = AlphaNumericTable[data[idx]] * 45 + AlphaNumericTable[data[idx + 1]];
-                        var b = new BitArray(11, false);
-                        for (i = 0; i < 11; i++)
-                            if ((x & (0x400 >> i)) != 0)
-                                b[i] = true;
-                        bits.Add(b);
-                    }
+                        int idx;
 
-                    if (idx < data.Length)
-                    {
-                        int x = AlphaNumericTable[data[idx]];
-                        var b = new BitArray(6, false);
-                        for (i = 0; i < 6; i++)
-                            if ((x & (0x20 >> i)) != 0)
-                                b[i] = true;
-                        bits.Add(b);
+                        // for every pair of characters
+                        for (idx = 0; idx < data.Length - 1; idx += 2)
+                        {
+                            // encode them as a single number
+                            int x = AlphaNumericTable[data[idx]] * 45 + AlphaNumericTable[data[idx + 1]];
+
+                            // convert to an 11-bit array, MSB first
+                            var b = new BitArray(11, false);
+                            for (int i = 0; i < 11; i++)
+                                if ((x & (0x400 >> i)) != 0)
+                                    b[i] = true;
+
+                            bits.Add(b);
+                        }
+
+                        // if there is a remaining character
+                        if (idx < data.Length)
+                        {
+                            // encode it as a number
+                            int x = AlphaNumericTable[data[idx]];
+
+                            // convert to a 6-bit array, MSB first
+                            var b = new BitArray(6, false);
+                            for (int i = 0; i < 6; i++)
+                                if ((x & (0x20 >> i)) != 0)
+                                    b[i] = true;
+
+                            bits.Add(b);
+                        }
                     }
                     break;
             }
             
+            // add the terminator mode marker
             bits.Add(EncodeMode(Mode.Terminator));
 
+            // calculate the bitstream's total length, in bits
             int bitstreamLength = bits.Sum(b => b.Length);
 
-            // get capacity of symbol
+            // check the full capacity of symbol, in bits
             int capacity = DataCapacityTable[Type][ErrorCorrection][Version].Item1 * 8;
 
+            // M1 and M3 are actually shorter by 1 nibble
             if (Type == SymbolType.Micro && (Version == 3 || Version == 1))
                 capacity -= 4;
 
@@ -244,12 +320,12 @@ namespace QRCode
 
             // fill the bitstream with pad codewords
             byte[] padCodewords = new byte[] { 0x37, 0x88 };
-            i = 0;
+            int padIndex = 0;
             while (bitstreamLength < (capacity - 4))
             {
-                bits.Add(new BitArray(new byte[] { padCodewords[i] }));
+                bits.Add(new BitArray(new byte[] { padCodewords[padIndex] }));
                 bitstreamLength += 8;
-                i = (i + 1) % 2;
+                padIndex = (padIndex + 1) % 2;
             }
 
             // fill the last nibble with zeroes (only necessary for M1 and M3)
@@ -259,24 +335,20 @@ namespace QRCode
                 bitstreamLength += 4;
             }
 
-            // flatten list of bitarrays
+            // flatten list of bitarrays into a single bool[]
             bool[] flattenedBits = new bool[bitstreamLength];
-            idx = 0;
+            int bitIndex = 0;
             foreach (var b in bits)
             {
-                b.CopyTo(flattenedBits, idx);
-                idx += b.Length;
+                b.CopyTo(flattenedBits, bitIndex);
+                bitIndex += b.Length;
             }
 
-            // convert to code words
+            // convert to code words, remembering that the bit's start from the MSB of each byte
             byte[] codeWords = new byte[(flattenedBits.Length - 1) / 8 + 1];
             for (int b = 0; b < flattenedBits.Length; b++)
-            {
                 if (flattenedBits[b])
-                {
                     codeWords[b / 8] |= (byte)(0x80 >> (b % 8));
-                }
-            }
             #endregion
 
             #region Error word calculation
@@ -285,21 +357,24 @@ namespace QRCode
 
             // generate error correction words
             var ecc = ErrorCorrectionTable[Type][Version][ErrorCorrection];
-            idx = 0;
+            int dataIndex = 0;
 
+            // for each collection of blocks that are needed
             foreach (var e in ecc)
             {
+                // lookup number of data words and error words in this block
                 int dataWords = e.Item3;
                 int errorWords = e.Item2 - e.Item3;
 
+                // retrieve the appropriate polynomial for the desired error word count
                 var poly = Polynomials[errorWords].ToArray();
 
-                // for each block of that structure
+                // for each needed block
                 for (int b = 0; b < e.Item1; b++)
                 {
-                    // add the data block to the list
-                    dataBlocks.Add(codeWords.Skip(idx).Take(dataWords).ToArray());
-                    idx += dataWords;
+                    // add the block's data to the final list
+                    dataBlocks.Add(codeWords.Skip(dataIndex).Take(dataWords).ToArray());
+                    dataIndex += dataWords;
 
                     // pad the block with zeroes
                     var temp = Enumerable.Concat(dataBlocks.Last(), Enumerable.Repeat((byte)0, errorWords)).ToArray();
@@ -308,11 +383,11 @@ namespace QRCode
                     for (int start = 0; start < dataWords; start++)
                     {
                         byte pow = LogTable[temp[start]];
-                        for (i = 0; i < poly.Length; i++)
+                        for (int i = 0; i < poly.Length; i++)
                             temp[i + start] ^= ExponentTable[Mul(poly[i], pow)];
                     }
 
-                    // add error block to the list
+                    // add error block to the final list
                     eccBlocks.Add(temp.Skip(dataWords).ToArray());
                 }
             }
@@ -320,38 +395,46 @@ namespace QRCode
 
             // generate final data sequence
             byte[] sequence = new byte[dataBlocks.Sum(b => b.Length) + eccBlocks.Sum(b => b.Length)];
-            idx = 0;
-            for (i = 0; i < dataBlocks.Max(b => b.Length); i++)
-            {
-                foreach (var b in dataBlocks.Where(b => b.Length > i))
-                {
-                    sequence[idx++] = b[i];
-                }
-            }
-            for (i = 0; i < eccBlocks.Max(b => b.Length); i++)
-            {
-                foreach (var b in eccBlocks.Where(b => b.Length > i))
-                {
-                    sequence[idx++] = b[i];
-                }
-            }
+            int finalIndex = 0;
 
-            return new BitArray(sequence);
+            // interleave the data blocks
+            for (int i = 0; i < dataBlocks.Max(b => b.Length); i++)
+                foreach (var b in dataBlocks.Where(b => b.Length > i))
+                    sequence[finalIndex++] = b[i];
+
+            // interleave the error blocks
+            for (int i = 0; i < eccBlocks.Max(b => b.Length); i++)
+                foreach (var b in eccBlocks.Where(b => b.Length > i))
+                    sequence[finalIndex++] = b[i];
+
+            // convert back to a bitarray, MSB first
+            BitArray result = new BitArray(sequence.Length * 8);
+            for (int i = 0; i < result.Length; i++)
+                if ((sequence[i / 8] & (0x80 >> (i % 8))) != 0)
+                    result[i] = true;
+
+            return result;
         }
 
-        private void Prep()
+        /// <summary>
+        /// Perform the followign steps
+        /// - Draw finder patterns
+        /// - Draw alignment patterns
+        /// - Draw timing lines
+        /// - Reserve space for version and format information
+        /// - Mark remaining space as "free" for data
+        /// </summary>
+        private void Reserve()
         {
             dim = GetSymbolDimension();
-            qz = GetQuietZoneDimension();
-            fullDim = dim + 2 * qz;
 
             // initialize to a full symbol of unaccessed, light modules
-            freeMask = new bool[fullDim, fullDim];
-            accessCount = new int[fullDim, fullDim];
-            modules = new ModuleType[fullDim, fullDim];
-            for (int x = 0; x < fullDim; x++)
+            freeMask = new bool[dim, dim];
+            accessCount = new int[dim, dim];
+            modules = new ModuleType[dim, dim];
+            for (int x = 0; x < dim; x++)
             {
-                for (int y = 0; y < fullDim; y++)
+                for (int y = 0; y < dim; y++)
                 {
                     modules[x, y] = ModuleType.Light;
                     accessCount[x, y] = 0;
@@ -431,43 +514,68 @@ namespace QRCode
                     break;
             }
 
-            CreateMask();
+            // mark non-accessed cells as free, accessed cells as reserved
+            CreateFreeMask();
         }
 
+        /// <summary>
+        /// Populate the "free" modules with data.
+        /// </summary>
+        /// <param name="bits"></param>
         private void Fill(BitArray bits)
         {
-            // fill with data
+            // start with bit 0, moving up
             int idx = 0;
             bool up = true;
+
+            // from right-to-left
             for (int x = dim - 1; x >= 0; x -= 2)
             {
                 // skip over the vertical timing line
                 if (x == 6)
                     x--;
 
+                // in the indicated direction
                 for (int y = (up ? dim - 1 : 0); y >= 0 && y < dim; y += (up ? -1 : 1))
                 {
+                    // for each horizontal pair of modules
                     for (int dx = 0; dx > -2; dx--)
                     {
+                        // if the module is free (not reserved)
                         if (IsFree(x + dx, y))
                         {
+                            // if data remains to be written
                             if (idx < bits.Length)
-                                Set(x + dx, y, bits[(idx / 8 * 8) + (7 - (idx % 8))] ? ModuleType.Dark : ModuleType.Light);
+                            {
+                                // write the next bit
+                                Set(x + dx, y, bits[idx] ? ModuleType.Dark : ModuleType.Light);
+                            }
                             else
+                            {
+                                // pad with light cells
                                 Set(x + dx, y, ModuleType.Light);
+                            }
+
+                            // advance to the next bit
                             idx++;
                         }
                     }
                 }
 
+                // reverse directions
                 up = !up;
             }
         }
 
+        /// <summary>
+        /// Identify and apply the best mask
+        /// </summary>
+        /// <returns></returns>
         private byte Mask()
         {
             List<Tuple<byte, byte, Func<int, int, bool>>> masks = null;
             
+            // determine which mask types are applicable
             switch (Type)
             {
                 case SymbolType.Micro:
@@ -488,9 +596,14 @@ namespace QRCode
             // apply the winner
             Apply(winner.Item3);
 
+            // return the winner's ID
             return Type == SymbolType.Normal ? winner.Item1 : winner.Item2;
         }
 
+        /// <summary>
+        /// Write the format information (version and mask id)
+        /// </summary>
+        /// <param name="maskID"></param>
         private void AddFormatInformation(byte maskID)
         {
             if (Type == SymbolType.Micro)
@@ -535,6 +648,9 @@ namespace QRCode
             Set(8, dim - 1, bits[ 0] ? ModuleType.Dark : ModuleType.Light);
         }
 
+        /// <summary>
+        /// Write the version information
+        /// </summary>
         private void AddVersionInformation()
         {
             if (Type == SymbolType.Micro || Version < 7)
@@ -545,22 +661,14 @@ namespace QRCode
             // write top-right block
             var idx = 17;
             for (int y = 0; y < 6; y++)
-            {
                 for (int x = dim - 11; x < dim - 8; x++)
-                {
                     Set(x, y, bits[idx--] ? ModuleType.Dark : ModuleType.Light);
-                }
-            }
 
             // write bottom-left block
             idx = 17;
             for (int x = 0; x < 6; x++)
-            {
                 for (int y = dim - 11; y < dim - 8; y++)
-                {
                     Set(x, y, bits[idx--] ? ModuleType.Dark : ModuleType.Light);
-                }
-            }
         }
         #endregion
 
@@ -609,44 +717,36 @@ namespace QRCode
         private void DrawTimingHLine(int x, int y, int length)
         {
             for (int dx = 0; dx < length; dx++)
-            {
                 Set(x + dx, y, ((x+dx) % 2 == 0) ? ModuleType.Dark : ModuleType.Light);
-            }
         }
 
         private void DrawTimingVLine(int x, int y, int length)
         {
             for (int dy = 0; dy < length; dy++)
-            {
                 Set(x, y + dy, ((y+dy) % 2 == 0) ? ModuleType.Dark : ModuleType.Light);
-            }
         }
 
         private void Set(int x, int y, ModuleType type)
         {
-            modules[qz + x, qz + y] = type;
-            accessCount[qz + x, qz + y]++;
+            modules[x, y] = type;
+            accessCount[x, y]++;
         }
 
         private ModuleType Get(int x, int y)
         {
-            return modules[qz + x, qz + y];
+            return modules[x, y];
         }
 
-        private void CreateMask()
+        private void CreateFreeMask()
         {
             for (int x = 0; x < dim; x++)
-            {
                 for (int y = 0; y < dim; y++)
-                {
-                    freeMask[qz + x, qz + y] = accessCount[qz + x, qz + y] == 0;
-                }
-            }
+                    freeMask[x, y] = accessCount[x, y] == 0;
         }
 
         private bool IsFree(int x, int y)
         {
-            return freeMask[qz + x, qz + y];
+            return freeMask[x, y];
         }
         #endregion
 
@@ -852,21 +952,6 @@ namespace QRCode
             throw new InvalidOperationException();
         }
 
-        private int GetQuietZoneDimension()
-        {
-            return 0;
-
-            switch (Type)
-            {
-                case SymbolType.Micro:
-                    return 2;
-                case SymbolType.Normal:
-                    return 4;
-            }
-
-            throw new InvalidOperationException();
-        }
-
         private IEnumerable<Tuple<int, int>> GetAlignmentPatternLocations()
         {
             switch (Type)
@@ -965,11 +1050,6 @@ namespace QRCode
         private int GetMaxCharacters(Mode mode)
         {
             return (1 << GetCharacterCountBits(mode)) - 1;
-        }
-
-        private Tuple<int, int, int, int>[] GetErrorCorrectionParameters()
-        {
-            return ErrorCorrectionTable[Type][Version][ErrorCorrection];
         }
 
         private static byte Mul(byte a1, byte a2)
@@ -1972,13 +2052,9 @@ namespace QRCode
         }
         #endregion
 
-        // (0, 0) - top, left
-        // (w, h) - bottom, right 
         private ModuleType[,] modules;
         private int[,] accessCount;
         private bool[,] freeMask;
         private int dim;
-        private int fullDim;
-        private int qz;
     }
 }

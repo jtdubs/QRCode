@@ -8,17 +8,7 @@ namespace QRCode
     {
         public static void Main(string[] args)
         {
-            Exception e;
-            try
-            {
-                throw new InvalidOperationException("shit done blowed up");
-            }
-            catch (Exception ex)
-            {
-                e = ex;
-            }
-
-            var code = new QRCode(e.ToString(), SymbolType.Normal, ErrorCorrection.M);
+            var code = new QRCode("THIS IS A TEXTUAL MESSAGE THAT SHOULD ENCODE PROPERLY IN ALPHANUMERIC MODE.", SymbolType.Normal, ErrorCorrection.M);
             code.Save("Test.png", 4);
         }
     }
