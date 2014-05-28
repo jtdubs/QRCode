@@ -59,6 +59,7 @@ namespace QRCode
             Prep();
             Fill(bits);
             Mask();
+            AddFormatAndVersion();
         }
 
         public SymbolType Type { get; private set; }
@@ -266,6 +267,10 @@ namespace QRCode
             switch (Type)
             {
                 case SymbolType.Micro:
+                    // draw top-left finder pattern's format area
+                    DrawHLine(1, 8, 8, ModuleType.Light);
+                    DrawVLine(8, 1, 7, ModuleType.Light);
+
                     // draw timing lines
                     DrawTimingHLine(8, 0, dim - 8);
                     DrawTimingVLine(0, 8, dim - 8);
@@ -339,6 +344,32 @@ namespace QRCode
 
         private void Mask()
         {
+            List<Tuple<int, int, Func<int, int, bool>>> masks = null;
+            
+            switch (Type)
+            {
+                case SymbolType.Micro:
+                    masks = DataMaskTable.Where(m => m.Item2 != -1).ToList();
+                    break;
+                    
+                case SymbolType.Normal:
+                    masks = DataMaskTable.ToList();
+                    break;
+            }
+
+            // evaluate all the maks
+            var results = masks.Select(m => Tuple.Create(m, EvaluateMask(m.Item3)));
+
+            // choose a winner
+            var winner = results.OrderBy(t => t.Item2).First().Item1;
+
+            // apply the winner
+            Apply(winner.Item3);
+        }
+
+        private void AddFormatAndVersion()
+        {
+            
         }
         #endregion
 
@@ -409,6 +440,11 @@ namespace QRCode
             }
         }
 
+        private ModuleType Get(int x, int y)
+        {
+            return modules[qz + x, qz + y];
+        }
+
         private void CreateMask()
         {
             for (int x = 0; x < dim; x++)
@@ -423,6 +459,194 @@ namespace QRCode
         private bool IsFree(int x, int y)
         {
             return freeMask[qz + x, qz + y];
+        }
+        #endregion
+
+        #region Masking Helpers
+        private int EvaluateMask(Func<int, int, bool> mask)
+        {
+            // apply the mask
+            Apply(mask);
+
+            try
+            {
+                int penalty = 0;
+
+                // horizontal adjacency penalties
+                for (int y = 0; y < dim; y++)
+                {
+                    ModuleType last = Get(0, y);
+                    int count = 1;
+
+                    for (int x = 1; x < dim; x++)
+                    {
+                        var m = Get(x, y);
+                        if (m == last)
+                        {
+                            count++;
+                        }
+                        else
+                        {
+                            if (count >= 5)
+                                penalty += count - 2;
+
+                            last = m;
+                            count = 1;
+                        }
+                    }
+
+                    if (count >= 5)
+                        penalty += 5 + count;
+                }
+
+                // vertical adjacency penalties
+                for (int x = 0; x < dim; x++)
+                {
+                    ModuleType last = Get(x, 0);
+                    int count = 1;
+
+                    for (int y = 1; y < dim; y++)
+                    {
+                        var m = Get(x, y);
+                        if (m == last)
+                        {
+                            count++;
+                        }
+                        else
+                        {
+                            if (count >= 5)
+                                penalty += 5 + count;
+
+                            last = m;
+                            count = 1;
+                        }
+                    }
+
+                    if (count >= 5)
+                        penalty += 5 + count;
+                }
+
+                // block penalties
+                for (int x = 0; x < dim - 1; x++)
+                {
+                    for (int y = 0; y < dim - 1; y++)
+                    {
+                        var m = Get(x, y);
+
+                        if (m == Get(x+1, y) && m == Get(x, y+1) && m == Get(x+1, y+1))
+                            penalty += 3;
+                    }
+                }
+
+                // horizontal finder pattern penalties
+                for (int y = 0; y < dim; y++)
+                {
+                    for (int x = 0; x < dim - 11; x++)
+                    {
+                        if (Get(x + 0, y) == ModuleType.Dark &&
+                            Get(x + 1, y) == ModuleType.Light &&
+                            Get(x + 2, y) == ModuleType.Dark &&
+                            Get(x + 3, y) == ModuleType.Dark &&
+                            Get(x + 4, y) == ModuleType.Dark &&
+                            Get(x + 5, y) == ModuleType.Light &&
+                            Get(x + 6, y) == ModuleType.Dark &&
+                            Get(x + 7, y) == ModuleType.Light &&
+                            Get(x + 8, y) == ModuleType.Light &&
+                            Get(x + 9, y) == ModuleType.Light &&
+                            Get(x + 10, y) == ModuleType.Light)
+                            penalty += 40;
+
+                        if (Get(x + 0, y) == ModuleType.Light &&
+                            Get(x + 1, y) == ModuleType.Light &&
+                            Get(x + 2, y) == ModuleType.Light &&
+                            Get(x + 3, y) == ModuleType.Light &&
+                            Get(x + 4, y) == ModuleType.Dark &&
+                            Get(x + 5, y) == ModuleType.Light &&
+                            Get(x + 6, y) == ModuleType.Dark &&
+                            Get(x + 7, y) == ModuleType.Dark &&
+                            Get(x + 8, y) == ModuleType.Dark &&
+                            Get(x + 9, y) == ModuleType.Light &&
+                            Get(x + 10, y) == ModuleType.Dark)
+                            penalty += 40;
+                    }
+                }
+
+                // vertical finder pattern penalties
+                for (int x = 0; x < dim; x++)
+                {
+                    for (int y = 0; y < dim - 11; y++)
+                    {
+                        if (Get(x, y + 0) == ModuleType.Dark &&
+                            Get(x, y + 1) == ModuleType.Light &&
+                            Get(x, y + 2) == ModuleType.Dark &&
+                            Get(x, y + 3) == ModuleType.Dark &&
+                            Get(x, y + 4) == ModuleType.Dark &&
+                            Get(x, y + 5) == ModuleType.Light &&
+                            Get(x, y + 6) == ModuleType.Dark &&
+                            Get(x, y + 7) == ModuleType.Light &&
+                            Get(x, y + 8) == ModuleType.Light &&
+                            Get(x, y + 9) == ModuleType.Light &&
+                            Get(x, y + 10) == ModuleType.Light)
+                            penalty += 40;
+
+                        if (Get(x, y + 0) == ModuleType.Light &&
+                            Get(x, y + 1) == ModuleType.Light &&
+                            Get(x, y + 2) == ModuleType.Light &&
+                            Get(x, y + 3) == ModuleType.Light &&
+                            Get(x, y + 4) == ModuleType.Dark &&
+                            Get(x, y + 5) == ModuleType.Light &&
+                            Get(x, y + 6) == ModuleType.Dark &&
+                            Get(x, y + 7) == ModuleType.Dark &&
+                            Get(x, y + 8) == ModuleType.Dark &&
+                            Get(x, y + 9) == ModuleType.Light &&
+                            Get(x, y + 10) == ModuleType.Dark)
+                            penalty += 40;
+                    }
+                }
+
+                // ratio penalties
+                int total = dim * dim;
+                int darkCount = 0;
+
+                for (int x = 0; x < dim; x++)
+                {
+                    for (int y = 0; y < dim; y++)
+                    {
+                        if (Get(x, y) == ModuleType.Dark)
+                            darkCount++;
+                    }
+                }
+
+                int percentDark = darkCount * 100 / total;
+                int up   = (percentDark % 5 == 0) ? percentDark : percentDark + (5 - (percentDark % 5));
+                int down = (percentDark % 5 == 0) ? percentDark : percentDark - (percentDark % 5);
+                up = Math.Abs(up - 50);
+                down = Math.Abs(down - 50);
+                up /= 5;
+                down /= 5;
+                penalty += Math.Min(up, down) * 10;
+
+                return penalty;
+            }
+            finally
+            {
+                // undo the mask
+                Apply(mask);
+            }
+        }
+
+        private void Apply(Func<int, int, bool> mask)
+        {
+            for (int x = 0; x < dim; x++)
+            {
+                for (int y = 0; y < dim; y++)
+                {
+                    if (IsFree(x, y) && mask(x, y))
+                    {
+                        Set(x, y, Get(x, y) == ModuleType.Dark ? ModuleType.Light : ModuleType.Dark);
+                    }
+                }
+            }
         }
         #endregion
 
