@@ -54,8 +54,11 @@ namespace QRCode
         {
             Type = type;
             ErrorCorrection = errorCorrection;
-            Encode(data);
-            Draw();
+            
+            var bits = Encode(data);
+            Prep();
+            Fill(bits);
+            Mask();
         }
 
         public SymbolType Type { get; private set; }
@@ -84,7 +87,9 @@ namespace QRCode
             {
                 for (int x = 0; x < fullDim; x++)
                 {
-                    if (modules[x, y] == ModuleType.Dark)
+                    if (accessCount[qz+x, qz+y] == 0)
+                        Console.Write("_");
+                    else if (modules[qz+x, qz+y] == ModuleType.Dark)
                         Console.Write("#");
                     else
                         Console.Write(".");
@@ -93,142 +98,8 @@ namespace QRCode
             }
         }
 
-        #region Drawing
-        private void Draw()
-        {
-            dim = GetSymbolDimension();
-            qz = GetQuietZoneDimension();
-            fullDim = dim + 2 * qz;
-
-            // initialize to a full symbol of unaccessed, light modules
-            accessCount = new int[fullDim, fullDim];
-            modules = new ModuleType[fullDim, fullDim];
-            for (int x = 0; x < fullDim; x++)
-            {
-                for (int y = 0; y < fullDim; y++)
-                {
-                    modules[x, y] = ModuleType.Light;
-                    accessCount[x, y] = 0;
-                }
-            }
-
-            // draw top-left finder pattern
-            DrawFinderPattern(3, 3);
-
-            switch (Type)
-            {
-                case SymbolType.Micro:
-                    // draw timing lines
-                    DrawTimingHLine(8, 0, dim - 8);
-                    DrawTimingVLine(0, 8, dim - 8);
-                    break;
-
-                case SymbolType.Normal:
-                    // draw top-right finder pattern
-                    DrawFinderPattern(dim - 4, 3);
-
-                    // draw bottom-left finder pattern
-                    DrawFinderPattern(3, dim - 4);
-
-                    // draw timing lines
-                    DrawTimingHLine(8, 6, dim - 8);
-                    DrawTimingVLine(6, 8, dim - 8 - 8);
-                    break;
-            }
-
-            // draw alignment patterns
-            foreach (var location in GetAlignmentPatternLocations())
-            {
-                // check for overlap with top-left finder pattern
-                if (location.Item1 < 10 && location.Item2 < 10)
-                    continue;
-
-                // check for overlap with bottom-left finder pattern
-                if (location.Item1 < 10 && location.Item2 > (dim - 10))
-                    continue;
-
-                // check for overlap with top-right finder pattern
-                if (location.Item1 > (dim - 10) && location.Item2 < 10)
-                    continue;
-
-                DrawAlignmentPattern(location.Item1, location.Item2);
-            }
-        }
-
-        private void DrawFinderPattern(int centerX, int centerY)
-        {
-            DrawRect(centerX-3, centerY-3, 7, 7, ModuleType.Dark);
-            FillRect(centerX-1, centerY-1, 3, 3, ModuleType.Dark);
-        }
-
-        private void DrawAlignmentPattern(int centerX, int centerY)
-        {
-            DrawRect(centerX-2, centerY-2, 5, 5, ModuleType.Dark);
-            Set(centerX, centerY, ModuleType.Dark);
-        }
-
-        private void FillRect(int left, int top, int width, int height, ModuleType type)
-        {
-            for (int dx = 0; dx < width; dx++)
-                for (int dy = 0; dy < height; dy++)
-                    Set(left + dx, top + dy, type);
-        }
-
-        private void DrawRect(int left, int top, int width, int height, ModuleType type)
-        {
-            DrawHLine(left, top, width, type);
-            DrawHLine(left, top + height - 1, width, type);
-            DrawVLine(left, top + 1, height - 2, type);
-            DrawVLine(left + width - 1, top + 1, height - 2, type);
-        }
-
-        private void DrawHLine(int x, int y, int length, ModuleType type)
-        {
-            for (int dx = 0; dx < length; dx++)
-                Set(x + dx, y, type);
-        }
-
-        private void DrawVLine(int x, int y, int length, ModuleType type)
-        {
-            for (int dy = 0; dy < length; dy++)
-                Set(x, y + dy, type);
-        }
-
-        private void DrawTimingHLine(int x, int y, int length)
-        {
-            // advance to first dark module
-            if (x % 2 == 1)
-            {
-                x++;
-                length--;
-            }
-
-            for (int dx = 0; dx < length; dx+=2)
-                Set(x + dx, y, ModuleType.Dark);
-        }
-
-        private void DrawTimingVLine(int x, int y, int length)
-        {
-            // advance to first dark module
-            if (y % 2 == 1)
-            {
-                y++;
-                length--;
-            }
-
-            for (int dy = 0; dy < length; dy+=2)
-                Set(x, y + dy, ModuleType.Dark);
-        }
-
-        private void Set(int x, int y, ModuleType type)
-        {
-            modules[qz+x, qz+y] = type;
-            accessCount[qz+x, qz+y]++;
-        }
-        #endregion
-
-        #region Encoding
-        private void Encode(byte[] data)
+        #region Steps
+        private BitArray Encode(byte[] data)
         {
             // choose symbol version based on data length (assuming encoding as bytes)
             Version = DataCapacityTable[Type][ErrorCorrection].First(p => p.Value.Item4 >= data.Length).Key;
@@ -240,9 +111,9 @@ namespace QRCode
             bits.Add(EncodeCharacterCount(Mode.Byte, data.Length));
             bits.Add(new BitArray(data));
             bits.Add(EncodeMode(Mode.Terminator));
-            
+
             int bitstreamLength = bits.Sum(b => b.Length);
-            
+
             // get capacity of symbol
             int capacity = DataCapacityTable[Type][ErrorCorrection][Version].Item1 * 8;
 
@@ -344,10 +215,218 @@ namespace QRCode
                     sequence[idx++] = b[i];
                 }
             }
+
+            return new BitArray(sequence);
+        }
+
+        private void Prep()
+        {
+            dim = GetSymbolDimension();
+            qz = GetQuietZoneDimension();
+            fullDim = dim + 2 * qz;
+
+            // initialize to a full symbol of unaccessed, light modules
+            freeMask = new bool[fullDim, fullDim];
+            accessCount = new int[fullDim, fullDim];
+            modules = new ModuleType[fullDim, fullDim];
+            for (int x = 0; x < fullDim; x++)
+            {
+                for (int y = 0; y < fullDim; y++)
+                {
+                    modules[x, y] = ModuleType.Light;
+                    accessCount[x, y] = 0;
+                    freeMask[x, y] = true;
+                }
+            }
+
+            // draw alignment patterns
+            foreach (var location in GetAlignmentPatternLocations())
+            {
+                // check for overlap with top-left finder pattern
+                if (location.Item1 < 10 && location.Item2 < 10)
+                    continue;
+
+                // check for overlap with bottom-left finder pattern
+                if (location.Item1 < 10 && location.Item2 > (dim - 10))
+                    continue;
+
+                // check for overlap with top-right finder pattern
+                if (location.Item1 > (dim - 10) && location.Item2 < 10)
+                    continue;
+
+                DrawAlignmentPattern(location.Item1, location.Item2);
+            }
+
+            // draw top-left finder pattern
+            DrawFinderPattern(3, 3);
+            // and border
+            DrawHLine(0, 7, 8, ModuleType.Light);
+            DrawVLine(7, 0, 7, ModuleType.Light);
+
+            switch (Type)
+            {
+                case SymbolType.Micro:
+                    // draw timing lines
+                    DrawTimingHLine(8, 0, dim - 8);
+                    DrawTimingVLine(0, 8, dim - 8);
+                    break;
+
+                case SymbolType.Normal:
+                    // draw top-left finder pattern's format area
+                    DrawHLine(0, 8, 9, ModuleType.Light);
+                    DrawVLine(8, 0, 8, ModuleType.Light);
+
+                    // draw top-right finder pattern
+                    DrawFinderPattern(dim - 4, 3);
+                    // and border
+                    DrawHLine(dim - 8, 7, 8, ModuleType.Light);
+                    DrawVLine(dim - 8, 0, 7, ModuleType.Light);
+                    // and format area
+                    DrawHLine(dim - 8, 8, 8, ModuleType.Light);
+
+                    // draw bottom-left finder pattern
+                    DrawFinderPattern(3, dim - 4);
+                    // and border
+                    DrawHLine(0, dim - 8, 8, ModuleType.Light);
+                    DrawVLine(7, dim - 7, 7, ModuleType.Light);
+                    // and format area
+                    DrawVLine(8, dim - 7, 7, ModuleType.Light);
+                    // and dark module
+                    Set(8, dim - 8, ModuleType.Dark);
+
+                    // draw timing lines
+                    DrawTimingHLine(8, 6, dim - 8 - 8);
+                    DrawTimingVLine(6, 8, dim - 8 - 8);
+
+                    if (Version >= 7)
+                    {
+                        // reserve version information areas
+                        FillRect(0, dim - 12, 6, 3, ModuleType.Light);
+                        FillRect(dim - 12, 0, 3, 6, ModuleType.Light);
+                    }
+                    break;
+            }
+
+            CreateMask();
+        }
+
+        private void Fill(BitArray bits)
+        {
+            // fill with data
+            int idx = 0;
+            bool up = true;
+            for (int x = dim - 1; x >= 0; x -= 2)
+            {
+                // skip over the vertical timing line
+                if (x == 6)
+                    x--;
+
+                for (int y = (up ? dim - 1 : 0); y >= 0 && y < dim; y += (up ? -1 : 1))
+                {
+                    for (int dx = 0; dx > -2; dx--)
+                    {
+                        if (IsFree(x + dx, y))
+                        {
+                            if (idx < bits.Length)
+                                Set(x + dx, y, bits[idx++] ? ModuleType.Dark : ModuleType.Light);
+                            else
+                                Set(x + dx, y, ModuleType.Light);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void Mask()
+        {
         }
         #endregion
 
-        #region Helpers
+        #region Drawing Helpers
+        private void DrawFinderPattern(int centerX, int centerY)
+        {
+            DrawRect(centerX-3, centerY-3, 7, 7, ModuleType.Dark);
+            DrawRect(centerX-2, centerY-2, 5, 5, ModuleType.Light);
+            FillRect(centerX-1, centerY-1, 3, 3, ModuleType.Dark);
+        }
+
+        private void DrawAlignmentPattern(int centerX, int centerY)
+        {
+            DrawRect(centerX-2, centerY-2, 5, 5, ModuleType.Dark);
+            DrawRect(centerX-1, centerY-1, 3, 3, ModuleType.Light);
+            Set(centerX, centerY, ModuleType.Dark);
+        }
+
+        private void FillRect(int left, int top, int width, int height, ModuleType type)
+        {
+            for (int dx = 0; dx < width; dx++)
+                for (int dy = 0; dy < height; dy++)
+                    Set(left + dx, top + dy, type);
+        }
+
+        private void DrawRect(int left, int top, int width, int height, ModuleType type)
+        {
+            DrawHLine(left, top, width, type);
+            DrawHLine(left, top + height - 1, width, type);
+            DrawVLine(left, top + 1, height - 2, type);
+            DrawVLine(left + width - 1, top + 1, height - 2, type);
+        }
+
+        private void DrawHLine(int x, int y, int length, ModuleType type)
+        {
+            for (int dx = 0; dx < length; dx++)
+                Set(x + dx, y, type);
+        }
+
+        private void DrawVLine(int x, int y, int length, ModuleType type)
+        {
+            for (int dy = 0; dy < length; dy++)
+                Set(x, y + dy, type);
+        }
+
+        private void DrawTimingHLine(int x, int y, int length)
+        {
+            for (int dx = 0; dx < length; dx++)
+            {
+                Set(x + dx, y, ((x+dx) % 2 == 0) ? ModuleType.Dark : ModuleType.Light);
+            }
+        }
+
+        private void DrawTimingVLine(int x, int y, int length)
+        {
+            for (int dy = 0; dy < length; dy++)
+            {
+                Set(x, y + dy, ((y+dy) % 2 == 0) ? ModuleType.Dark : ModuleType.Light);
+            }
+        }
+
+        private void Set(int x, int y, ModuleType type)
+        {
+            if (freeMask[qz + x, qz + y])
+            {
+                modules[qz + x, qz + y] = type;
+                accessCount[qz + x, qz + y]++;
+            }
+        }
+
+        private void CreateMask()
+        {
+            for (int x = 0; x < dim; x++)
+            {
+                for (int y = 0; y < dim; y++)
+                {
+                    freeMask[qz + x, qz + y] = accessCount[qz + x, qz + y] == 0;
+                }
+            }
+        }
+
+        private bool IsFree(int x, int y)
+        {
+            return freeMask[qz + x, qz + y];
+        }
+        #endregion
+
+        #region Calculation Helpers
         private int GetSymbolDimension()
         {
             switch (Type)
@@ -363,6 +442,8 @@ namespace QRCode
 
         private int GetQuietZoneDimension()
         {
+            return 0;
+
             switch (Type)
             {
                 case SymbolType.Micro:
@@ -478,9 +559,19 @@ namespace QRCode
         {
             return ErrorCorrectionTable[Type][Version][ErrorCorrection];
         }
+
+        private static byte Mul(byte a1, byte a2)
+        {
+            return (byte)((a1 + a2) % 255);
+        }
+
+        private static byte Add(byte a1, byte a2)
+        {
+            return LogTable[ExponentTable[a1] ^ ExponentTable[a2]];
+        }
         #endregion
 
-        #region Data
+        #region Data Tables
         private static int[][] AlignmentPatternLocations = new int[][]
         {
             new int[] { },
@@ -1265,6 +1356,18 @@ namespace QRCode
                             .ToDictionary(n => n.Item1, n => n.Item2)))
                 .ToDictionary(t => t.Item1, t => t.Item2);
 
+        private static Tuple<int, int, Func<int, int, bool>>[] DataMaskTable = new Tuple<int, int, Func<int, int, bool>>[]
+        {
+            Tuple.Create<int, int, Func<int, int, bool>>(0, -1, (i, j) => (i + j) % 2 == 0),
+            Tuple.Create<int, int, Func<int, int, bool>>(1,  0, (i, j) => i % 2 == 0),
+            Tuple.Create<int, int, Func<int, int, bool>>(2, -1, (i, j) => j % 3 == 0),
+            Tuple.Create<int, int, Func<int, int, bool>>(3, -1, (i, j) => (i + j) % 3 == 0),
+            Tuple.Create<int, int, Func<int, int, bool>>(4,  1, (i, j) => ((i / 2) + (j / 3)) % 2 == 0),
+            Tuple.Create<int, int, Func<int, int, bool>>(5, -1, (i, j) => ((i * j) % 2) + ((i * j) % 3) == 0),
+            Tuple.Create<int, int, Func<int, int, bool>>(6,  2, (i, j) => (((i * j) % 2) + ((i * j) % 3)) % 2 == 0),
+            Tuple.Create<int, int, Func<int, int, bool>>(7,  3, (i, j) => (((i + j) % 2) + ((i * j) % 3)) % 2 == 0),
+        };
+
         private static byte[] ExponentTable;
         private static byte[] LogTable;
         private static byte[][] Polynomials;
@@ -1309,22 +1412,13 @@ namespace QRCode
                 Polynomials[i][Polynomials[i].Length - 1] = Mul(Polynomials[i - 1].Last(), term.Last());
             }
         }
-
-        private static byte Mul(byte a1, byte a2)
-        {
-            return (byte)((a1 + a2) % 255);
-        }
-
-        private static byte Add(byte a1, byte a2)
-        {
-            return LogTable[ExponentTable[a1] ^ ExponentTable[a2]];
-        }
         #endregion
 
         // (0, 0) - top, left
         // (w, h) - bottom, right 
         private ModuleType[,] modules;
         private int[,] accessCount;
+        private bool[,] freeMask;
         private int dim;
         private int fullDim;
         private int qz;
