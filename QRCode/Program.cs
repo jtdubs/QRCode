@@ -8,10 +8,18 @@ namespace QRCode
     {
         public static void Main(string[] args)
         {
-            var code = new QRCode("HELLO WORLD", SymbolType.Normal, ErrorCorrection.H);
-            code.Show();
+            Exception e;
+            try
+            {
+                throw new InvalidOperationException("shit done blowed up");
+            }
+            catch (Exception ex)
+            {
+                e = ex;
+            }
 
-            Console.ReadLine();
+            var code = new QRCode(e.ToString(), SymbolType.Normal, ErrorCorrection.M);
+            code.Save("Test.png", 4);
         }
     }
 }
