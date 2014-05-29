@@ -249,7 +249,7 @@ namespace QRCode
                         {
                             case Mode.Numeric: capacity = capacityEntry.Item2; break;
                             case Mode.AlphaNumeric: capacity = capacityEntry.Item3; break;
-                            case Mode.Byte: capacity = capacityEntry.Item3; break;
+                            case Mode.Byte: capacity = capacityEntry.Item4; break;
                             default: capacity = 0; break;
                         }
 
@@ -290,15 +290,13 @@ namespace QRCode
             {
                 case Mode.Byte:
                     {
-                        // FIXME: byte mode isn't working...
-
                         // retrieve UTF8 encoding of data
                         var bytes = Encoding.UTF8.GetBytes(data);
 
                         var b = new BitArray(8 * bytes.Length, false);
 
                         // encode as a bit array, traversing each byte from MSB to LSB
-                        for (int i = 0; i < bytes.Length * 8; i++)
+                        for (int i = 0; i < b.Length; i++)
                             if ((bytes[i / 8] & (0x80 >> (i % 8))) != 0)
                                 b[i] = true;
 

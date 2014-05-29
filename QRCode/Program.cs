@@ -25,7 +25,7 @@ namespace QRCode
             code = new QRCode("Bytes needed.");
             code.Save("Small Bytes.png", 4);
 
-            code = new QRCode("This i a longer message that will take a bigger QR code to fit.  The small ones just won't be big enough.  Lets see what happens.");
+            code = new QRCode("This is a longer message that will take a bigger QR code to fit.  The small ones just won't be big enough.  Lets see what happens.");
             code.Save("Longer Bytes.png", 4);
            
         }
