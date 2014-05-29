@@ -9,7 +9,8 @@ namespace QRCode
         public static void Main(string[] args)
         {
             QRCode code = null;
-            code = new QRCode("THIS IS A TEXTUAL MESSAGE THAT SHOULD ENCODE PROPERLY IN ALPHANUMERIC MODE.", SymbolType.Normal, ErrorCorrection.M);
+            code = new QRCode("01234567", ErrorCorrection.None);
+            // code = new QRCode("THIS IA A LONGER ONE AND WILL HAVE TO BE IN A FULL SYMBOL", ErrorCorrection.None);
             code.Save("Test.png", 4);
         }
     }
