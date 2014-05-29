@@ -160,32 +160,44 @@ namespace QRCode
         }
 
         /// <summary>
-        /// Save the QR code as an image
+        /// Save the QR code as an image at the following scale.
         /// </summary>
         /// <param name="path">Path of image file to create.</param>
         /// <param name="scale">Size of a module, in pixels.</param>
         public void Save(string imagePath, int scale)
         {
-            using (Bitmap b = new Bitmap(dim * scale, dim * scale))
+            using (Bitmap b = ToBitmap(scale))
             {
-                using (Graphics g = Graphics.FromImage(b))
-                {
-                    g.Clear(Color.White);
+                b.Save(imagePath);
+            }
+        }
 
-                    for (int x = 0; x < dim; x++)
+        /// <summary>
+        /// Generate a bitmap of this QR code at the following scale.
+        /// </summary>
+        /// <param name="scale"></param>
+        /// <returns></returns>
+        public Bitmap ToBitmap(int scale)
+        {
+            Bitmap b = new Bitmap(dim * scale, dim * scale);
+
+            using (Graphics g = Graphics.FromImage(b))
+            {
+                g.Clear(Color.White);
+
+                for (int x = 0; x < dim; x++)
+                {
+                    for (int y = 0; y < dim; y++)
                     {
-                        for (int y = 0 ; y < dim; y++)
+                        if (Get(x, y) == ModuleType.Dark)
                         {
-                            if (Get(x, y) == ModuleType.Dark)
-                            {
-                                g.FillRectangle(Brushes.Black, x * scale, y * scale, scale, scale);
-                            }
+                            g.FillRectangle(Brushes.Black, x * scale, y * scale, scale, scale);
                         }
                     }
                 }
-
-                b.Save(imagePath);
             }
+
+            return b;
         }
 
         #region Steps
