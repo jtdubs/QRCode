@@ -92,7 +92,7 @@ namespace QRCode
         /// <param name="type"></param>
         /// <param name="errorCorrection"></param>
         public QRCode(string data)
-            : this(data, ErrorCorrection.None)
+            : this(data, ErrorCorrection.M, false)
         {
         }
 
@@ -103,8 +103,16 @@ namespace QRCode
         /// <param name="type"></param>
         /// <param name="errorCorrection"></param>
         public QRCode(string data, ErrorCorrection minimumErrorCorrection)
+            : this(data, minimumErrorCorrection, false)
         {
-            var mode = ChooseParameters(data, minimumErrorCorrection);
+        }
+
+        /// <summary>
+        /// Create a QR symbol that represents the supplied `data' with the indicated minimum level of error correction.
+        /// </summary>
+        public QRCode(string data, ErrorCorrection minimumErrorCorrection, bool allowMicroCodes)
+        {
+            var mode = ChooseParameters(data, minimumErrorCorrection, allowMicroCodes);
             var codeWords = CreateCodeWords(data, mode);
             var bits = AddErrorCorrection(codeWords);
             Reserve();
@@ -186,7 +194,7 @@ namespace QRCode
         /// </summary>
         /// <param name="data"></param>
         /// <returns></returns>
-        private Mode ChooseParameters(string data, ErrorCorrection minimumErrorCorrection)
+        private Mode ChooseParameters(string data, ErrorCorrection minimumErrorCorrection, bool allowMicroCodes)
         {
             // get list of error correction modes at least as good as the user-specified one
             var allowedErrorCorrectionModes = new ErrorCorrection[]
@@ -216,10 +224,12 @@ namespace QRCode
             }.SkipWhile(m => m != tightestMode).ToList();
 
             // get list of possible types
-            var possibleTypes =
-                Enumerable.Concat(
-                    Enumerable.Range(1, 4).Select(i => Tuple.Create(SymbolType.Micro, (byte)i)),
-                    Enumerable.Range(1, 40).Select(i => Tuple.Create(SymbolType.Normal, (byte)i))).ToList();
+            List<Tuple<SymbolType, byte>> possibleTypes =
+                allowMicroCodes
+                ?   Enumerable.Concat(
+                        Enumerable.Range(1, 4).Select(i => Tuple.Create(SymbolType.Micro, (byte)i)),
+                        Enumerable.Range(1, 40).Select(i => Tuple.Create(SymbolType.Normal, (byte)i))).ToList()
+                :   Enumerable.Range(1, 40).Select(i => Tuple.Create(SymbolType.Normal, (byte)i)).ToList();
 
             // for each type in ascending order of size
             foreach (var p in possibleTypes)
@@ -280,6 +290,8 @@ namespace QRCode
             {
                 case Mode.Byte:
                     {
+                        // FIXME: byte mode isn't working...
+
                         // retrieve UTF8 encoding of data
                         var bytes = Encoding.UTF8.GetBytes(data);
 
