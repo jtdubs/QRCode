@@ -14,33 +14,33 @@ namespace QRCode
     /// </summary>
     public enum ModuleType
     {
-        Light, 
+        Light,
         Dark
     }
-    
+
     /// <summary>
     /// QR encoding modes
     /// </summary>
     public enum Mode
     {
-        ECI,
-        Numeric,
-        AlphaNumeric, 
-        Byte,
-        Kanji,
-        StructuredAppend,
-        FNC1_FirstPosition,
-        FNC1_SecondPosition,
-        Terminator
+        ECI = 0,
+        Numeric = 1,
+        AlphaNumeric = 2,
+        Byte = 3,
+        Kanji = 4,
+        StructuredAppend = 5,
+        FNC1_FirstPosition = 6,
+        FNC1_SecondPosition = 7,
+        Terminator = 8
     }
-    
+
     /// <summary>
     /// QR symbol types
     /// </summary>
-    public enum SymbolType 
+    public enum SymbolType
     {
-        Micro, 
-        Normal 
+        Micro,
+        Normal
     }
 
     /// <summary>
@@ -49,15 +49,15 @@ namespace QRCode
     public enum ErrorCorrection
     {
         [Description("Error-Detection Only")]
-        None,
+        None = 0,
         [Description("L (7%)")]
-        L,
+        L = 1,
         [Description("M (15%)")]
-        M,
+        M = 2,
         [Description("Q (25%)")]
-        Q,
+        Q = 3,
         [Description("H (30%)")]
-        H
+        H = 4
     }
 
     /// <summary>
@@ -168,7 +168,7 @@ namespace QRCode
         {
             using (Bitmap b = ToBitmap(scale))
             {
-                b.Save(imagePath);
+                b.Save(imagePath, ImageFormat.Png);
             }
         }
 
@@ -183,21 +183,33 @@ namespace QRCode
 
             using (Graphics g = Graphics.FromImage(b))
             {
-                g.Clear(Color.White);
-
-                for (int x = 0; x < dim; x++)
-                {
-                    for (int y = 0; y < dim; y++)
-                    {
-                        if (Get(x, y) == ModuleType.Dark)
-                        {
-                            g.FillRectangle(Brushes.Black, x * scale, y * scale, scale, scale);
-                        }
-                    }
-                }
+                Render(g, scale);
             }
 
             return b;
+        }
+
+        /// <summary>
+        /// Render this bitmap to the supplied Graphics object at the indicated scale.
+        /// </summary>
+        /// <param name="scale"></param>
+        /// <returns></returns>
+        public void Render(Graphics g, int scale)
+        {
+            var brush = new SolidBrush(Color.Black);
+
+            g.Clear(Color.White);
+
+            for (int x = 0; x < dim; x++)
+            {
+                for (int y = 0; y < dim; y++)
+                {
+                    if (Get(x, y) == ModuleType.Dark)
+                    {
+                        g.FillRectangle(brush, x * scale, y * scale, scale, scale);
+                    }
+                }
+            }
         }
 
         #region Steps
@@ -238,10 +250,10 @@ namespace QRCode
             // get list of possible types
             List<Tuple<SymbolType, byte>> possibleTypes =
                 allowMicroCodes
-                ?   Enumerable.Concat(
+                ? Enumerable.Concat(
                         Enumerable.Range(1, 4).Select(i => Tuple.Create(SymbolType.Micro, (byte)i)),
                         Enumerable.Range(1, 40).Select(i => Tuple.Create(SymbolType.Normal, (byte)i))).ToList()
-                :   Enumerable.Range(1, 40).Select(i => Tuple.Create(SymbolType.Normal, (byte)i)).ToList();
+                : Enumerable.Range(1, 40).Select(i => Tuple.Create(SymbolType.Normal, (byte)i)).ToList();
 
             // for each type in ascending order of size
             foreach (var p in possibleTypes)
@@ -250,7 +262,7 @@ namespace QRCode
                 foreach (var e in allowedErrorCorrectionModes.Intersect(GetAvailableErrorCorrectionLevels(p.Item1, p.Item2)).Reverse())
                 {
                     // lookup the data capacity
-                    var capacityEntry = DataCapacityTable[p.Item1][e][p.Item2];
+                    var capacityEntry = DataCapacityTable.First(f => f.Item1 == p.Item1 && f.Item2 == p.Item2 && f.Item3 == e).Item4;
 
                     // for each encoding mode from tightest to loosest
                     foreach (var m in allowedModes.Intersect(GetAvailableModes(p.Item1, p.Item2)))
@@ -413,7 +425,7 @@ namespace QRCode
             int bitstreamLength = bits.Sum(b => b.Length);
 
             // check the full capacity of symbol, in bits
-            int capacity = DataCapacityTable[Type][ErrorCorrection][Version].Item1 * 8;
+            int capacity = DataCapacityTable.First(f => f.Item1 == Type && f.Item2 == Version && f.Item3 == ErrorCorrection).Item4.Item1 * 8;
 
             // M1 and M3 are actually shorter by 1 nibble
             if (Type == SymbolType.Micro && (Version == 3 || Version == 1))
@@ -473,7 +485,7 @@ namespace QRCode
             List<byte[]> eccBlocks = new List<byte[]>();
 
             // generate error correction words
-            var ecc = ErrorCorrectionTable[Type][Version][ErrorCorrection];
+            var ecc = ErrorCorrectionTable.First(f => f.Item1 == Type && f.Item2 == Version && f.Item3 == ErrorCorrection).Item4;
             int dataIndex = 0;
 
             // for each collection of blocks that are needed
@@ -697,14 +709,14 @@ namespace QRCode
         private byte Mask()
         {
             List<Tuple<byte, byte, Func<int, int, bool>>> masks = null;
-            
+
             // determine which mask types are applicable
             switch (Type)
             {
                 case SymbolType.Micro:
                     masks = DataMaskTable.Where(m => m.Item2 != 255).ToList();
                     break;
-                    
+
                 case SymbolType.Normal:
                     masks = DataMaskTable.ToList();
                     break;
@@ -735,7 +747,7 @@ namespace QRCode
         {
             if (Type == SymbolType.Normal)
             {
-                var bits = NormalFormatStrings[ErrorCorrection][maskID];
+                var bits = NormalFormatStrings.First(f => f.Item1 == ErrorCorrection && f.Item2 == maskID).Item3;
 
                 // add format information around top-left finder pattern
                 Set(8, 0, bits[14] ? ModuleType.Dark : ModuleType.Light);
@@ -775,7 +787,7 @@ namespace QRCode
             }
             else
             {
-                var bits = MicroFormatStrings[Version][ErrorCorrection][maskID];
+                var bits = MicroFormatStrings.First(f => f.Item1 == Version && f.Item2 == ErrorCorrection && f.Item3 == maskID).Item4;
 
                 // add format information around top-left finder pattern
                 Set(8, 1, bits[14] ? ModuleType.Dark : ModuleType.Light);
@@ -823,15 +835,15 @@ namespace QRCode
         #region Drawing Helpers
         private void DrawFinderPattern(int centerX, int centerY)
         {
-            DrawRect(centerX-3, centerY-3, 7, 7, ModuleType.Dark);
-            DrawRect(centerX-2, centerY-2, 5, 5, ModuleType.Light);
-            FillRect(centerX-1, centerY-1, 3, 3, ModuleType.Dark);
+            DrawRect(centerX - 3, centerY - 3, 7, 7, ModuleType.Dark);
+            DrawRect(centerX - 2, centerY - 2, 5, 5, ModuleType.Light);
+            FillRect(centerX - 1, centerY - 1, 3, 3, ModuleType.Dark);
         }
 
         private void DrawAlignmentPattern(int centerX, int centerY)
         {
-            DrawRect(centerX-2, centerY-2, 5, 5, ModuleType.Dark);
-            DrawRect(centerX-1, centerY-1, 3, 3, ModuleType.Light);
+            DrawRect(centerX - 2, centerY - 2, 5, 5, ModuleType.Dark);
+            DrawRect(centerX - 1, centerY - 1, 3, 3, ModuleType.Light);
             Set(centerX, centerY, ModuleType.Dark);
         }
 
@@ -865,13 +877,13 @@ namespace QRCode
         private void DrawTimingHLine(int x, int y, int length)
         {
             for (int dx = 0; dx < length; dx++)
-                Set(x + dx, y, ((x+dx) % 2 == 0) ? ModuleType.Dark : ModuleType.Light);
+                Set(x + dx, y, ((x + dx) % 2 == 0) ? ModuleType.Dark : ModuleType.Light);
         }
 
         private void DrawTimingVLine(int x, int y, int length)
         {
             for (int dy = 0; dy < length; dy++)
-                Set(x, y + dy, ((y+dy) % 2 == 0) ? ModuleType.Dark : ModuleType.Light);
+                Set(x, y + dy, ((y + dy) % 2 == 0) ? ModuleType.Dark : ModuleType.Light);
         }
 
         private void Set(int x, int y, ModuleType type)
@@ -1124,7 +1136,7 @@ namespace QRCode
                     break;
 
                 case SymbolType.Normal:
-                    var locations = AlignmentPatternLocations[Version - 1];
+                    var locations = AlignmentPatternLocations[Version];
                     for (int i = 0; i < locations.Length; i++)
                     {
                         for (int j = i; j < locations.Length; j++)
@@ -1176,10 +1188,10 @@ namespace QRCode
             switch (Type)
             {
                 case SymbolType.Normal:
-                    return NormalModeEncodings[mode];
+                    return NormalModeEncodings[(int)mode];
 
                 case SymbolType.Micro:
-                    return MicroModeEncodings[Version][mode];
+                    return MicroModeEncodings.First(t => t.Item1 == Version && t.Item2 == mode).Item3;
             }
 
             throw new InvalidOperationException();
@@ -1193,7 +1205,7 @@ namespace QRCode
             int max = GetMaxCharacters(mode);
 
             if (count < min || count > max)
-                throw new ArgumentOutOfRangeException("count", count, String.Format("QR {0} character counts must be in the range {1} <= n <= {2}", Description, min, max));
+                throw new ArgumentOutOfRangeException("count", String.Format("QR {0} character counts must be in the range {1} <= n <= {2}", Description, min, max));
 
             var result = new BitArray(bits);
             for (int i = 0; i < bits; i++)
@@ -1203,14 +1215,7 @@ namespace QRCode
 
         private int GetCharacterCountBits(Mode mode)
         {
-            try
-            {
-                return CharacterWidthTable[Type][Version][mode];
-            }
-            catch (KeyNotFoundException)
-            {
-                throw new InvalidOperationException();
-            }
+            return CharacterWidthTable.First(f => f.Item1 == Type && f.Item2 == Version && f.Item3 == mode).Item4;
         }
 
         private int GetMaxCharacters(Mode mode)
@@ -1230,7 +1235,7 @@ namespace QRCode
         #endregion
 
         #region Data Tables
-        private static Dictionary<char, int> AlphaNumericTable =
+        private static readonly Dictionary<char, int> AlphaNumericTable =
             new Dictionary<char, int>()
             {
                 { '0',  0 },
@@ -1280,9 +1285,10 @@ namespace QRCode
                 { ':', 44 }
             };
 
-        private static int[][] AlignmentPatternLocations = 
+        private static readonly int[][] AlignmentPatternLocations =
             new int[][]
             {
+                new int[] { },
                 new int[] { },
                 new int[] { 6, 18 },
                 new int[] { 6, 22 },
@@ -1325,7 +1331,7 @@ namespace QRCode
                 new int[] { 6, 30, 58, 86, 114, 142, 170 },
             };
 
-        private static Mode[] NormalModes =
+        private static readonly Mode[] NormalModes =
             new Mode[]
             {
                 Mode.ECI,
@@ -1339,16 +1345,17 @@ namespace QRCode
                 Mode.Terminator
             };
 
-        private static Dictionary<int, Mode[]> MicroModes = 
-            new Dictionary<int, Mode[]>
+        private static readonly Mode[][] MicroModes =
+            new Mode[][]
             {
-                { 1, new Mode[] { Mode.Numeric, Mode.Terminator } },
-                { 2, new Mode[] { Mode.Numeric, Mode.AlphaNumeric, Mode.Terminator } },
-                { 3, new Mode[] { Mode.Numeric, Mode.AlphaNumeric, Mode.Byte, Mode.Kanji, Mode.Terminator } },
-                { 4, new Mode[] { Mode.Numeric, Mode.AlphaNumeric, Mode.Byte, Mode.Kanji, Mode.Terminator } },
+                null,
+                new Mode[] { Mode.Numeric, Mode.Terminator },
+                new Mode[] { Mode.Numeric, Mode.AlphaNumeric, Mode.Terminator },
+                new Mode[] { Mode.Numeric, Mode.AlphaNumeric, Mode.Byte, Mode.Kanji, Mode.Terminator },
+                new Mode[] { Mode.Numeric, Mode.AlphaNumeric, Mode.Byte, Mode.Kanji, Mode.Terminator }
             };
 
-        private static ErrorCorrection[] NormalErrorCorrectionLevels =
+        private static readonly ErrorCorrection[] NormalErrorCorrectionLevels =
             new ErrorCorrection[]
             {
                 ErrorCorrection.L,
@@ -1357,38 +1364,33 @@ namespace QRCode
                 ErrorCorrection.H,
             };
 
-        private static Dictionary<int, ErrorCorrection[]> MicroErrorCorrectionLevels =
-            new Dictionary<int, ErrorCorrection[]>
+        private static readonly ErrorCorrection[][] MicroErrorCorrectionLevels =
+            new ErrorCorrection[][]
             {
-                { 1, new ErrorCorrection[] { ErrorCorrection.None } },
-                { 2, new ErrorCorrection[] { ErrorCorrection.L, ErrorCorrection.M } },
-                { 3, new ErrorCorrection[] { ErrorCorrection.L, ErrorCorrection.M } },
-                { 4, new ErrorCorrection[] { ErrorCorrection.L, ErrorCorrection.M, ErrorCorrection.Q } },
+                null,
+                new ErrorCorrection[] { ErrorCorrection.None },
+                new ErrorCorrection[] { ErrorCorrection.L, ErrorCorrection.M },
+                new ErrorCorrection[] { ErrorCorrection.L, ErrorCorrection.M },
+                new ErrorCorrection[] { ErrorCorrection.L, ErrorCorrection.M, ErrorCorrection.Q }
             };
 
-        private static Dictionary<Mode, BitArray> NormalModeEncodings = 
-            new Dictionary<Mode, BitArray>()
+        private static readonly BitArray[] NormalModeEncodings =
+            new BitArray[]
             {
-                { Mode.ECI,                 new BitArray(new bool[] { false,  true,  true,  true }) },
-                { Mode.Numeric,             new BitArray(new bool[] { false, false, false,  true }) },
-                { Mode.AlphaNumeric,        new BitArray(new bool[] { false, false,  true, false }) },
-                { Mode.Byte,                new BitArray(new bool[] { false,  true, false, false }) },
-                { Mode.Kanji,               new BitArray(new bool[] {  true, false, false, false }) },
-                { Mode.FNC1_FirstPosition,  new BitArray(new bool[] { false,  true, false,  true }) },
-                { Mode.FNC1_SecondPosition, new BitArray(new bool[] {  true, false, false,  true }) },
-                { Mode.Terminator,          new BitArray(new bool[] { false, false, false, false }) },
+                new BitArray(new bool[] { false,  true,  true,  true }),
+                new BitArray(new bool[] { false, false, false,  true }),
+                new BitArray(new bool[] { false, false,  true, false }),
+                new BitArray(new bool[] { false,  true, false, false }),
+                new BitArray(new bool[] {  true, false, false, false }),
+                null,                
+                new BitArray(new bool[] { false,  true, false,  true }),
+                new BitArray(new bool[] {  true, false, false,  true }),
+                new BitArray(new bool[] { false, false, false, false }),
             };
 
-        private static Dictionary<ErrorCorrection, byte> ErrorCorrectionEncodings = 
-            new Dictionary<ErrorCorrection, byte>()
-            {
-                { ErrorCorrection.L, 1 },
-                { ErrorCorrection.M, 0 },
-                { ErrorCorrection.Q, 3 },
-                { ErrorCorrection.H, 2 }
-            };
+        private static readonly byte[] ErrorCorrectionEncodings = new byte[] { 0, 1, 0, 3, 2 };
 
-        private static Dictionary<int, Dictionary<Mode, BitArray>> MicroModeEncodings =
+        private static readonly List<Tuple<int, Mode, BitArray>> MicroModeEncodings =
             new List<Tuple<int, Mode, BitArray>>()
             {
                 Tuple.Create(1, Mode.Numeric,      new BitArray(0)),
@@ -1406,13 +1408,10 @@ namespace QRCode
                 Tuple.Create(4, Mode.Byte,         new BitArray(new bool[] { false,  true, false })),
                 Tuple.Create(4, Mode.Kanji,        new BitArray(new bool[] { false,  true,  true })),
                 Tuple.Create(4, Mode.Terminator,   new BitArray(new bool[] { false, false, false, false, false, false, false, false, false })),
-            }
-            .GroupBy(t => t.Item1)
-            .Select(g => Tuple.Create(g.Key, g.ToDictionary(t => t.Item2, t => t.Item3)))
-            .ToDictionary(t => t.Item1, t => t.Item2);
+            };
 
-        private static Dictionary<SymbolType, Dictionary<int, Dictionary<Mode, int>>> CharacterWidthTable =
-            new List<Tuple<SymbolType, int, Mode, int>>()
+        private static readonly Tuple<SymbolType, int, Mode, int>[] CharacterWidthTable =
+            new Tuple<SymbolType, int, Mode, int>[]
             {
                 Tuple.Create(SymbolType.Micro,   1, Mode.Numeric,       3),
                 Tuple.Create(SymbolType.Micro,   2, Mode.Numeric,       4),
@@ -1585,22 +1584,10 @@ namespace QRCode
                 Tuple.Create(SymbolType.Normal, 40, Mode.AlphaNumeric, 13),
                 Tuple.Create(SymbolType.Normal, 40, Mode.Byte,         16),
                 Tuple.Create(SymbolType.Normal, 40, Mode.Kanji,        12),
-            }
-            .GroupBy(t => t.Item1)
-            .Select(t =>
-                Tuple.Create(
-                    t.Key,
-                    t
-                        .GroupBy(n => n.Item2)
-                        .Select(n =>
-                            Tuple.Create(
-                                n.Key,
-                                n.ToDictionary(g => g.Item3, g => g.Item4)))
-                        .ToDictionary(n => n.Item1, n => n.Item2)))
-            .ToDictionary(t => t.Item1, t => t.Item2);
+            };
 
-        private static Dictionary<SymbolType, Dictionary<int, Dictionary<ErrorCorrection, Tuple<int, int, int, int>[]>>> ErrorCorrectionTable =
-            new List<Tuple<SymbolType, int, ErrorCorrection, Tuple<int, int, int, int>[]>>()
+        private static readonly Tuple<SymbolType, int, ErrorCorrection, Tuple<int, int, int, int>[]>[] ErrorCorrectionTable =
+            new Tuple<SymbolType, int, ErrorCorrection, Tuple<int, int, int, int>[]>[]
             {
                 Tuple.Create(SymbolType.Micro,   1, ErrorCorrection.None, new[] { Tuple.Create( 1,   5,   3,   0) }),
                 Tuple.Create(SymbolType.Micro,   2, ErrorCorrection.L,    new[] { Tuple.Create( 1,  10,   5,   1) }),
@@ -1898,22 +1885,10 @@ namespace QRCode
                                                                                   Tuple.Create(34,  55,  25,  15) }),
                 Tuple.Create(SymbolType.Normal, 40, ErrorCorrection.H,    new[] { Tuple.Create(20,  45,  15,  15), 
                                                                                   Tuple.Create(61,  46,  16,  15) }),
-            }
-            .GroupBy(t => t.Item1)
-            .Select(t =>
-                Tuple.Create(
-                    t.Key,
-                    t
-                        .GroupBy(n => n.Item2)
-                        .Select(n =>
-                            Tuple.Create(
-                                n.Key,
-                                n.ToDictionary(g => g.Item3, g => g.Item4)))
-                        .ToDictionary(n => n.Item1, n => n.Item2)))
-            .ToDictionary(t => t.Item1, t => t.Item2);
+            };
 
-        private static Dictionary<SymbolType, Dictionary<ErrorCorrection, Dictionary<int, Tuple<int, int, int, int, int>>>> DataCapacityTable =
-            new List<Tuple<SymbolType, int, ErrorCorrection, Tuple<int, int, int, int, int>>>()
+        private static readonly Tuple<SymbolType, int, ErrorCorrection, Tuple<int, int, int, int, int>>[] DataCapacityTable =
+            new Tuple<SymbolType, int, ErrorCorrection, Tuple<int, int, int, int, int>>[]
             {
                 Tuple.Create(SymbolType.Micro,   1, ErrorCorrection.None, Tuple.Create(   3,    5,    0,    0,    0)),
                 Tuple.Create(SymbolType.Micro,   2, ErrorCorrection.L,    Tuple.Create(   5,   10,    6,    0,    0)),
@@ -2083,21 +2058,9 @@ namespace QRCode
                 Tuple.Create(SymbolType.Normal, 40, ErrorCorrection.M,    Tuple.Create(2334, 5596, 3391, 2331, 1435)),
                 Tuple.Create(SymbolType.Normal, 40, ErrorCorrection.Q,    Tuple.Create(1666, 3993, 2420, 1663, 1024)), 
                 Tuple.Create(SymbolType.Normal, 40, ErrorCorrection.H,    Tuple.Create(1276, 3057, 1852, 1273,  784)), 
-            }
-            .GroupBy(t => t.Item1)
-            .Select(t =>
-                Tuple.Create(
-                    t.Key,
-                    t
-                        .GroupBy(n => n.Item3)
-                        .Select(n =>
-                            Tuple.Create(
-                                n.Key,
-                                n.ToDictionary(g => g.Item2, g => g.Item4)))
-                        .ToDictionary(n => n.Item1, n => n.Item2)))
-            .ToDictionary(t => t.Item1, t => t.Item2);
+            };
 
-        private static Tuple<byte, byte, Func<int, int, bool>>[] DataMaskTable =
+        private static readonly Tuple<byte, byte, Func<int, int, bool>>[] DataMaskTable =
             new Tuple<byte, byte, Func<int, int, bool>>[]
             {
                 Tuple.Create<byte, byte, Func<int, int, bool>>(0, 255, (i, j) => (i + j) % 2 == 0),
@@ -2110,7 +2073,7 @@ namespace QRCode
                 Tuple.Create<byte, byte, Func<int, int, bool>>(7,   3, (i, j) => (((i + j) % 2) + ((i * j) % 3)) % 2 == 0),
             };
 
-        private static Dictionary<ErrorCorrection, Dictionary<byte, BitArray>> NormalFormatStrings = 
+        private static readonly Tuple<ErrorCorrection, byte, BitArray>[] NormalFormatStrings =
             new Tuple<ErrorCorrection, byte, BitArray>[]
             {
                 Tuple.Create(ErrorCorrection.L, (byte)0, new BitArray(new bool[] {  true,  true,  true, false,  true,  true,  true,  true,  true, false, false, false,  true, false, false })),
@@ -2145,15 +2108,9 @@ namespace QRCode
                 Tuple.Create(ErrorCorrection.H, (byte)5, new BitArray(new bool[] { false, false, false, false, false,  true, false, false,  true, false,  true, false,  true, false,  true })),
                 Tuple.Create(ErrorCorrection.H, (byte)6, new BitArray(new bool[] { false, false, false,  true,  true, false,  true, false, false, false, false,  true,  true, false, false })),
                 Tuple.Create(ErrorCorrection.H, (byte)7, new BitArray(new bool[] { false, false, false,  true, false, false, false, false, false,  true,  true,  true, false,  true,  true }))
-            }
-            .GroupBy(t => t.Item1)
-            .Select(t =>
-                Tuple.Create(
-                    t.Key,
-                    t.ToDictionary(b => b.Item2, b => b.Item3)))
-            .ToDictionary(t => t.Item1, t => t.Item2);
+            };
 
-        private static Dictionary<int, Dictionary<ErrorCorrection, Dictionary<byte, BitArray>>> MicroFormatStrings =
+        private static readonly Tuple<int, ErrorCorrection, byte, BitArray>[] MicroFormatStrings =
             new Tuple<int, ErrorCorrection, byte, BitArray>[]
             {
                 Tuple.Create(2, ErrorCorrection.M,    (byte)0, new BitArray(new bool[] { true,  true, false, false,  true,  true,  true,  true, false, false,  true, false, false,  true,  true })),
@@ -2188,103 +2145,168 @@ namespace QRCode
                 Tuple.Create(4, ErrorCorrection.L,    (byte)1, new BitArray(new bool[] {false, false,  true, false, false,  true, false, false, false, false, false, false, false,  true, false })),
                 Tuple.Create(4, ErrorCorrection.L,    (byte)2, new BitArray(new bool[] {false, false,  true,  true,  true, false,  true, false,  true, false,  true,  true, false,  true,  true })),
                 Tuple.Create(4, ErrorCorrection.L,    (byte)3, new BitArray(new bool[] {false, false,  true,  true, false, false, false, false,  true,  true, false,  true,  true, false, false })),
-            }
-            .GroupBy(t => t.Item1)
-            .Select(t =>
-                Tuple.Create(
-                    t.Key,
-                    t
-                        .GroupBy(n => n.Item2)
-                        .Select(n =>
-                            Tuple.Create(
-                                n.Key,
-                                n.ToDictionary(g => g.Item3, g => g.Item4)))
-                        .ToDictionary(n => n.Item1, n => n.Item2)))
-            .ToDictionary(t => t.Item1, t => t.Item2);
-
-        private static Dictionary<int, BitArray> VersionStrings =
-            new Dictionary<int, BitArray>()
-            {
-                {  7, new BitArray(new bool[] { false, false, false,  true,  true,  true,  true,  true, false, false,  true, false, false,  true, false,  true, false, false }) },
-                {  8, new BitArray(new bool[] { false, false,  true, false, false, false, false,  true, false,  true,  true, false,  true,  true,  true,  true, false, false }) },
-                {  9, new BitArray(new bool[] { false, false,  true, false, false,  true,  true, false,  true, false,  true, false, false,  true,  true, false, false,  true }) },
-                { 10, new BitArray(new bool[] { false, false,  true, false,  true, false, false,  true, false, false,  true,  true, false,  true, false, false,  true,  true }) },
-                { 11, new BitArray(new bool[] { false, false,  true, false,  true,  true,  true, false,  true,  true,  true,  true,  true,  true, false,  true,  true, false }) },
-                { 12, new BitArray(new bool[] { false, false,  true,  true, false, false, false,  true,  true,  true, false,  true,  true, false, false, false,  true, false }) },
-                { 13, new BitArray(new bool[] { false, false,  true,  true, false,  true,  true, false, false, false, false,  true, false, false, false,  true,  true,  true }) },
-                { 14, new BitArray(new bool[] { false, false,  true,  true,  true, false, false,  true,  true, false, false, false, false, false,  true,  true, false,  true }) },
-                { 15, new BitArray(new bool[] { false, false,  true,  true,  true,  true,  true, false, false,  true, false, false,  true, false,  true, false, false, false }) },
-                { 16, new BitArray(new bool[] { false,  true, false, false, false, false,  true, false,  true,  true, false,  true,  true,  true,  true, false, false, false }) },
-                { 17, new BitArray(new bool[] { false,  true, false, false, false,  true, false,  true, false, false, false,  true, false,  true,  true,  true, false,  true }) },
-                { 18, new BitArray(new bool[] { false,  true, false, false,  true, false,  true, false,  true, false, false, false, false,  true, false,  true,  true,  true }) },
-                { 19, new BitArray(new bool[] { false,  true, false, false,  true,  true, false,  true, false,  true, false, false,  true,  true, false, false,  true, false }) },
-                { 20, new BitArray(new bool[] { false,  true, false,  true, false, false,  true, false, false,  true,  true, false,  true, false, false,  true,  true, false }) },
-                { 21, new BitArray(new bool[] { false,  true, false,  true, false,  true, false,  true,  true, false,  true, false, false, false, false, false,  true,  true }) },
-                { 22, new BitArray(new bool[] { false,  true, false,  true,  true, false,  true, false, false, false,  true,  true, false, false,  true, false, false,  true }) },
-                { 23, new BitArray(new bool[] { false,  true, false,  true,  true,  true, false,  true,  true,  true,  true,  true,  true, false,  true,  true, false, false }) },
-                { 24, new BitArray(new bool[] { false,  true,  true, false, false, false,  true,  true,  true, false,  true,  true, false, false, false,  true, false, false }) },
-                { 25, new BitArray(new bool[] { false,  true,  true, false, false,  true, false, false, false,  true,  true,  true,  true, false, false, false, false,  true }) },
-                { 26, new BitArray(new bool[] { false,  true,  true, false,  true, false,  true,  true,  true,  true,  true, false,  true, false,  true, false,  true,  true }) },
-                { 27, new BitArray(new bool[] { false,  true,  true, false,  true,  true, false, false, false, false,  true, false, false, false,  true,  true,  true, false }) },
-                { 28, new BitArray(new bool[] { false,  true,  true,  true, false, false,  true,  true, false, false, false, false, false,  true,  true, false,  true, false }) },
-                { 29, new BitArray(new bool[] { false,  true,  true,  true, false,  true, false, false,  true,  true, false, false,  true,  true,  true,  true,  true,  true }) },
-                { 30, new BitArray(new bool[] { false,  true,  true,  true,  true, false,  true,  true, false,  true, false,  true,  true,  true, false,  true, false,  true }) },
-                { 31, new BitArray(new bool[] { false,  true,  true,  true,  true,  true, false, false,  true, false, false,  true, false,  true, false, false, false, false }) },
-                { 32, new BitArray(new bool[] {  true, false, false, false, false, false,  true, false, false,  true,  true,  true, false,  true, false,  true, false,  true }) },
-                { 33, new BitArray(new bool[] {  true, false, false, false, false,  true, false,  true,  true, false,  true,  true,  true,  true, false, false, false, false }) },
-                { 34, new BitArray(new bool[] {  true, false, false, false,  true, false,  true, false, false, false,  true, false,  true,  true,  true, false,  true, false }) },
-                { 35, new BitArray(new bool[] {  true, false, false, false,  true,  true, false,  true,  true,  true,  true, false, false,  true,  true,  true,  true,  true }) },
-                { 36, new BitArray(new bool[] {  true, false, false,  true, false, false,  true, false,  true,  true, false, false, false, false,  true, false,  true,  true }) },
-                { 37, new BitArray(new bool[] {  true, false, false,  true, false,  true, false,  true, false, false, false, false,  true, false,  true,  true,  true, false }) },
-                { 38, new BitArray(new bool[] {  true, false, false,  true,  true, false,  true, false,  true, false, false,  true,  true, false, false,  true, false, false }) },
-                { 39, new BitArray(new bool[] {  true, false, false,  true,  true,  true, false,  true, false,  true, false,  true, false, false, false, false, false,  true }) },
-                { 40, new BitArray(new bool[] {  true, false,  true, false, false, false,  true,  true, false, false, false,  true,  true, false,  true, false, false,  true }) },
             };
 
-        private static byte[] ExponentTable;
-        private static byte[] LogTable;
-        private static byte[][] Polynomials;
-           
-        static QRCode()
+        private static readonly BitArray[] VersionStrings =
+            new BitArray[]
+            {
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new BitArray(new bool[] { false, false, false,  true,  true,  true,  true,  true, false, false,  true, false, false,  true, false,  true, false, false }),
+                new BitArray(new bool[] { false, false,  true, false, false, false, false,  true, false,  true,  true, false,  true,  true,  true,  true, false, false }),
+                new BitArray(new bool[] { false, false,  true, false, false,  true,  true, false,  true, false,  true, false, false,  true,  true, false, false,  true }),
+                new BitArray(new bool[] { false, false,  true, false,  true, false, false,  true, false, false,  true,  true, false,  true, false, false,  true,  true }),
+                new BitArray(new bool[] { false, false,  true, false,  true,  true,  true, false,  true,  true,  true,  true,  true,  true, false,  true,  true, false }),
+                new BitArray(new bool[] { false, false,  true,  true, false, false, false,  true,  true,  true, false,  true,  true, false, false, false,  true, false }),
+                new BitArray(new bool[] { false, false,  true,  true, false,  true,  true, false, false, false, false,  true, false, false, false,  true,  true,  true }),
+                new BitArray(new bool[] { false, false,  true,  true,  true, false, false,  true,  true, false, false, false, false, false,  true,  true, false,  true }),
+                new BitArray(new bool[] { false, false,  true,  true,  true,  true,  true, false, false,  true, false, false,  true, false,  true, false, false, false }),
+                new BitArray(new bool[] { false,  true, false, false, false, false,  true, false,  true,  true, false,  true,  true,  true,  true, false, false, false }),
+                new BitArray(new bool[] { false,  true, false, false, false,  true, false,  true, false, false, false,  true, false,  true,  true,  true, false,  true }),
+                new BitArray(new bool[] { false,  true, false, false,  true, false,  true, false,  true, false, false, false, false,  true, false,  true,  true,  true }),
+                new BitArray(new bool[] { false,  true, false, false,  true,  true, false,  true, false,  true, false, false,  true,  true, false, false,  true, false }),
+                new BitArray(new bool[] { false,  true, false,  true, false, false,  true, false, false,  true,  true, false,  true, false, false,  true,  true, false }),
+                new BitArray(new bool[] { false,  true, false,  true, false,  true, false,  true,  true, false,  true, false, false, false, false, false,  true,  true }),
+                new BitArray(new bool[] { false,  true, false,  true,  true, false,  true, false, false, false,  true,  true, false, false,  true, false, false,  true }),
+                new BitArray(new bool[] { false,  true, false,  true,  true,  true, false,  true,  true,  true,  true,  true,  true, false,  true,  true, false, false }),
+                new BitArray(new bool[] { false,  true,  true, false, false, false,  true,  true,  true, false,  true,  true, false, false, false,  true, false, false }),
+                new BitArray(new bool[] { false,  true,  true, false, false,  true, false, false, false,  true,  true,  true,  true, false, false, false, false,  true }),
+                new BitArray(new bool[] { false,  true,  true, false,  true, false,  true,  true,  true,  true,  true, false,  true, false,  true, false,  true,  true }),
+                new BitArray(new bool[] { false,  true,  true, false,  true,  true, false, false, false, false,  true, false, false, false,  true,  true,  true, false }),
+                new BitArray(new bool[] { false,  true,  true,  true, false, false,  true,  true, false, false, false, false, false,  true,  true, false,  true, false }),
+                new BitArray(new bool[] { false,  true,  true,  true, false,  true, false, false,  true,  true, false, false,  true,  true,  true,  true,  true,  true }),
+                new BitArray(new bool[] { false,  true,  true,  true,  true, false,  true,  true, false,  true, false,  true,  true,  true, false,  true, false,  true }),
+                new BitArray(new bool[] { false,  true,  true,  true,  true,  true, false, false,  true, false, false,  true, false,  true, false, false, false, false }),
+                new BitArray(new bool[] {  true, false, false, false, false, false,  true, false, false,  true,  true,  true, false,  true, false,  true, false,  true }),
+                new BitArray(new bool[] {  true, false, false, false, false,  true, false,  true,  true, false,  true,  true,  true,  true, false, false, false, false }),
+                new BitArray(new bool[] {  true, false, false, false,  true, false,  true, false, false, false,  true, false,  true,  true,  true, false,  true, false }),
+                new BitArray(new bool[] {  true, false, false, false,  true,  true, false,  true,  true,  true,  true, false, false,  true,  true,  true,  true,  true }),
+                new BitArray(new bool[] {  true, false, false,  true, false, false,  true, false,  true,  true, false, false, false, false,  true, false,  true,  true }),
+                new BitArray(new bool[] {  true, false, false,  true, false,  true, false,  true, false, false, false, false,  true, false,  true,  true,  true, false }),
+                new BitArray(new bool[] {  true, false, false,  true,  true, false,  true, false,  true, false, false,  true,  true, false, false,  true, false, false }),
+                new BitArray(new bool[] {  true, false, false,  true,  true,  true, false,  true, false,  true, false,  true, false, false, false, false, false,  true }),
+                new BitArray(new bool[] {  true, false,  true, false, false, false,  true,  true, false, false, false,  true,  true, false,  true, false, false,  true }),
+            };
+
+        private static readonly byte[] ExponentTable =
+            new byte[]
+            {
+                1,   2,   4,   8,   16,  32,  64,  128, 29,  58,  116, 232, 205, 135, 19,  38,  
+                76,  152, 45,  90,  180, 117, 234, 201, 143, 3,   6,   12,  24,  48,  96,  192, 
+                157, 39,  78,  156, 37,  74,  148, 53,  106, 212, 181, 119, 238, 193, 159, 35,  
+                70,  140, 5,   10,  20,  40,  80,  160, 93,  186, 105, 210, 185, 111, 222, 161, 
+                95,  190, 97,  194, 153, 47,  94,  188, 101, 202, 137, 15,  30,  60,  120, 240, 
+                253, 231, 211, 187, 107, 214, 177, 127, 254, 225, 223, 163, 91,  182, 113, 226, 
+                217, 175, 67,  134, 17,  34,  68,  136, 13,  26,  52,  104, 208, 189, 103, 206, 
+                129, 31,  62,  124, 248, 237, 199, 147, 59,  118, 236, 197, 151, 51,  102, 204, 
+                133, 23,  46,  92,  184, 109, 218, 169, 79,  158, 33,  66,  132, 21,  42,  84,  
+                168, 77,  154, 41,  82,  164, 85,  170, 73,  146, 57,  114, 228, 213, 183, 115, 
+                230, 209, 191, 99,  198, 145, 63,  126, 252, 229, 215, 179, 123, 246, 241, 255, 
+                227, 219, 171, 75,  150, 49,  98,  196, 149, 55,  110, 220, 165, 87,  174, 65,  
+                130, 25,  50,  100, 200, 141, 7,   14,  28,  56,  112, 224, 221, 167, 83,  166, 
+                81,  162, 89,  178, 121, 242, 249, 239, 195, 155, 43,  86,  172, 69,  138, 9,   
+                18,  36,  72,  144, 61,  122, 244, 245, 247, 243, 251, 235, 203, 139, 11,  22,  
+                44,  88,  176, 125, 250, 233, 207, 131, 27,  54,  108, 216, 173, 71,  142, 1
+            };
+
+        private static readonly byte[] LogTable =
+            new byte[]
+            {
+                0,   0,   1,   25,  2,   50,  26,  198, 3,   223, 51,  238, 27,  104, 199, 75,
+                4,   100, 224, 14,  52,  141, 239, 129, 28,  193, 105, 248, 200, 8,   76,  113,
+                5,   138, 101, 47,  225, 36,  15,  33,  53,  147, 142, 218, 240, 18,  130, 69,
+                29,  181, 194, 125, 106, 39,  249, 185, 201, 154, 9,   120, 77,  228, 114, 166,
+                6,   191, 139, 98,  102, 221, 48,  253, 226, 152, 37,  179, 16,  145, 34,  136,
+                54,  208, 148, 206, 143, 150, 219, 189, 241, 210, 19,  92,  131, 56,  70,  64,
+                30,  66,  182, 163, 195, 72,  126, 110, 107, 58,  40,  84,  250, 133, 186, 61,
+                202, 94,  155, 159, 10,  21,  121, 43,  78,  212, 229, 172, 115, 243, 167, 87,
+                7,   112, 192, 247, 140, 128, 99,  13,  103, 74,  222, 237, 49,  197, 254, 24,
+                227, 165, 153, 119, 38,  184, 180, 124, 17,  68,  146, 217, 35,  32,  137, 46,
+                55,  63,  209, 91,  149, 188, 207, 205, 144, 135, 151, 178, 220, 252, 190, 97,
+                242, 86,  211, 171, 20,  42,  93,  158, 132, 60,  57,  83,  71,  109, 65,  162,
+                31,  45,  67,  216, 183, 123, 164, 118, 196, 23,  73,  236, 127, 12,  111, 246,
+                108, 161, 59,  82,  41,  157, 85,  170, 251, 96,  134, 177, 187, 204, 62,  90,
+                203, 89,  95,  176, 156, 169, 160, 81,  11,  245, 22,  235, 122, 117, 44,  215,
+                79,  174, 213, 233, 230, 231, 173, 232, 116, 214, 244, 234, 168, 80,  88,  175
+            };
+
+        public static readonly byte[][] Polynomials = new byte[][]
         {
-            // generate log/anti-log tables
-            ExponentTable = new byte[256];
-            ExponentTable[0] = 1;
-            LogTable = new byte[256];
-
-            for (int i = 1; i < 256; i++)
-            {
-                int next = ExponentTable[i - 1] * 2;
-                if (next >= 256)
-                    next ^= 285;
-                ExponentTable[i] = (byte)next;
-                LogTable[next] = (byte)i;
-            }
-            LogTable[1] = 0;
-
-            // generate polynomials
-
-            Polynomials = new byte[69][];
-            Polynomials[1] = new byte[] { 0, 0 };
-
-            for (int i = 2; i <= 68; i++)
-            {
-                // we are going to multiply the preceeding polynomial by (a^0*x - a^i)
-                var term = new byte[] { 0, (byte)(i-1) };
-
-                // the new polynomial will have one more term than the preceeding one
-                Polynomials[i] = new byte[Polynomials[i - 1].Length + 1];
-                Polynomials[i][0] = Mul(Polynomials[i - 1].First(), term.First());
-
-                for (int p = 1; p < Polynomials[i].Length-1; p++)
-                    Polynomials[i][p] = 
-                        Add(
-                            Mul(Polynomials[i - 1][p - 1], term.Last()),
-                            Mul(Polynomials[i - 1][p], term.First()));
-
-                Polynomials[i][Polynomials[i].Length - 1] = Mul(Polynomials[i - 1].Last(), term.Last());
-            }
-        }
+            new byte[] { },
+            new byte[] { 0, 0, },
+            new byte[] { 0, 25, 1, },
+            new byte[] { 0, 198, 199, 3, },
+            new byte[] { 0, 75, 249, 78, 6, },
+            new byte[] { 0, 113, 164, 166, 119, 10, },
+            new byte[] { 0, 166, 0, 134, 5, 176, 15, },
+            new byte[] { 0, 87, 229, 146, 149, 238, 102, 21, },
+            new byte[] { 0, 175, 238, 208, 249, 215, 252, 196, 28, },
+            new byte[] { 0, 95, 246, 137, 231, 235, 149, 11, 123, 36, },
+            new byte[] { 0, 251, 67, 46, 61, 118, 70, 64, 94, 32, 45, },
+            new byte[] { 0, 220, 192, 91, 194, 172, 177, 209, 116, 227, 10, 55, },
+            new byte[] { 0, 102, 43, 98, 121, 187, 113, 198, 143, 131, 87, 157, 66, },
+            new byte[] { 0, 74, 152, 176, 100, 86, 100, 106, 104, 130, 218, 206, 140, 78, },
+            new byte[] { 0, 199, 249, 155, 48, 190, 124, 218, 137, 216, 87, 207, 59, 22, 91, },
+            new byte[] { 0, 8, 183, 61, 91, 202, 37, 51, 58, 58, 237, 140, 124, 5, 99, 105, },
+            new byte[] { 0, 120, 104, 107, 109, 102, 161, 76, 3, 91, 191, 147, 169, 182, 194, 225, 120, },
+            new byte[] { 0, 43, 139, 206, 78, 43, 239, 123, 206, 214, 147, 24, 99, 150, 39, 243, 163, 136, },
+            new byte[] { 0, 215, 234, 158, 94, 184, 97, 118, 170, 79, 187, 152, 148, 252, 179, 5, 98, 96, 153, },
+            new byte[] { 0, 67, 3, 105, 153, 52, 90, 83, 17, 150, 159, 44, 128, 153, 133, 252, 222, 138, 220, 171, },
+            new byte[] { 0, 17, 60, 79, 50, 61, 163, 26, 187, 202, 180, 221, 225, 83, 239, 156, 164, 212, 212, 188, 190, },
+            new byte[] { 0, 240, 233, 104, 247, 181, 140, 67, 98, 85, 200, 210, 115, 148, 137, 230, 36, 122, 254, 148, 175, 210, },
+            new byte[] { 0, 210, 171, 247, 242, 93, 230, 14, 109, 221, 53, 200, 74, 8, 172, 98, 80, 219, 134, 160, 105, 165, 231, },
+            new byte[] { 0, 171, 102, 146, 91, 49, 103, 65, 17, 193, 150, 14, 25, 183, 248, 94, 164, 224, 192, 1, 78, 56, 147, 253, },
+            new byte[] { 0, 229, 121, 135, 48, 211, 117, 251, 126, 159, 180, 169, 152, 192, 226, 228, 218, 111, 0, 117, 232, 87, 96, 227, 21, },
+            new byte[] { 0, 231, 181, 156, 39, 170, 26, 12, 59, 15, 148, 201, 54, 66, 237, 208, 99, 167, 144, 182, 95, 243, 129, 178, 252, 45, },
+            new byte[] { 0, 173, 125, 158, 2, 103, 182, 118, 17, 145, 201, 111, 28, 165, 53, 161, 21, 245, 142, 13, 102, 48, 227, 153, 145, 218, 70, },
+            new byte[] { 0, 79, 228, 8, 165, 227, 21, 180, 29, 9, 237, 70, 99, 45, 58, 138, 135, 73, 126, 172, 94, 216, 193, 157, 26, 17, 149, 96, },
+            new byte[] { 0, 168, 223, 200, 104, 224, 234, 108, 180, 110, 190, 195, 147, 205, 27, 232, 201, 21, 43, 245, 87, 42, 195, 212, 119, 242, 37, 9, 123, },
+            new byte[] { 0, 156, 45, 183, 29, 151, 219, 54, 96, 249, 24, 136, 5, 241, 175, 189, 28, 75, 234, 150, 148, 23, 9, 202, 162, 68, 250, 140, 24, 151, },
+            new byte[] { 0, 41, 173, 145, 152, 216, 31, 179, 182, 50, 48, 110, 86, 239, 96, 222, 125, 42, 173, 226, 193, 224, 130, 156, 37, 251, 216, 238, 40, 192, 180, },
+            new byte[] { 0, 20, 37, 252, 93, 63, 75, 225, 31, 115, 83, 113, 39, 44, 73, 122, 137, 118, 119, 144, 248, 248, 55, 1, 225, 105, 123, 183, 117, 187, 200, 210, },
+            new byte[] { 0, 10, 6, 106, 190, 249, 167, 4, 67, 209, 138, 138, 32, 242, 123, 89, 27, 120, 185, 80, 156, 38, 69, 171, 60, 28, 222, 80, 52, 254, 185, 220, 241, },
+            new byte[] { 0, 245, 231, 55, 24, 71, 78, 76, 81, 225, 212, 173, 37, 215, 46, 119, 229, 245, 167, 126, 72, 181, 94, 165, 210, 98, 125, 159, 184, 169, 232, 185, 231, 18, },
+            new byte[] { 0, 111, 77, 146, 94, 26, 21, 108, 19, 105, 94, 113, 193, 86, 140, 163, 125, 58, 158, 229, 239, 218, 103, 56, 70, 114, 61, 183, 129, 167, 13, 98, 62, 129, 51, },
+            new byte[] { 0, 7, 94, 143, 81, 247, 127, 202, 202, 194, 125, 146, 29, 138, 162, 153, 65, 105, 122, 116, 238, 26, 36, 216, 112, 125, 228, 15, 49, 8, 162, 30, 126, 111, 58, 85, },
+            new byte[] { 0, 200, 183, 98, 16, 172, 31, 246, 234, 60, 152, 115, 0, 167, 152, 113, 248, 238, 107, 18, 63, 218, 37, 87, 210, 105, 177, 120, 74, 121, 196, 117, 251, 113, 233, 30, 120, },
+            new byte[] { 0, 154, 75, 141, 180, 61, 165, 104, 232, 46, 227, 96, 178, 92, 135, 57, 162, 120, 194, 212, 174, 252, 183, 42, 35, 157, 111, 23, 133, 100, 8, 105, 37, 192, 189, 159, 19, 156, },
+            new byte[] { 0, 159, 34, 38, 228, 230, 59, 243, 95, 49, 218, 176, 164, 20, 65, 45, 111, 39, 81, 49, 118, 113, 222, 193, 250, 242, 168, 217, 41, 164, 247, 177, 30, 238, 18, 120, 153, 60, 193, },
+            new byte[] { 0, 81, 216, 174, 47, 200, 150, 59, 156, 89, 143, 89, 166, 183, 170, 152, 21, 165, 177, 113, 132, 234, 5, 154, 68, 124, 175, 196, 157, 249, 233, 83, 24, 153, 241, 126, 36, 116, 19, 231, },
+            new byte[] { 0, 59, 116, 79, 161, 252, 98, 128, 205, 128, 161, 247, 57, 163, 56, 235, 106, 53, 26, 187, 174, 226, 104, 170, 7, 175, 35, 181, 114, 88, 41, 47, 163, 125, 134, 72, 20, 232, 53, 35, 15, },
+            new byte[] { 0, 132, 167, 52, 139, 184, 223, 149, 92, 250, 18, 83, 33, 127, 109, 194, 7, 211, 242, 109, 66, 86, 169, 87, 96, 187, 159, 114, 172, 118, 208, 183, 200, 82, 179, 38, 39, 34, 242, 142, 147, 55, },
+            new byte[] { 0, 250, 103, 221, 230, 25, 18, 137, 231, 0, 3, 58, 242, 221, 191, 110, 84, 230, 8, 188, 106, 96, 147, 15, 131, 139, 34, 101, 223, 39, 101, 213, 199, 237, 254, 201, 123, 171, 162, 194, 117, 50, 96, },
+            new byte[] { 0, 96, 67, 3, 245, 217, 215, 33, 65, 240, 109, 144, 63, 21, 131, 38, 101, 153, 128, 55, 31, 237, 3, 94, 160, 20, 87, 77, 56, 191, 123, 207, 75, 82, 0, 122, 132, 101, 145, 215, 15, 121, 192, 138, },
+            new byte[] { 0, 190, 7, 61, 121, 71, 246, 69, 55, 168, 188, 89, 243, 191, 25, 72, 123, 9, 145, 14, 247, 1, 238, 44, 78, 143, 62, 224, 126, 118, 114, 68, 163, 52, 194, 217, 147, 204, 169, 37, 130, 113, 102, 73, 181, },
+            new byte[] { 0, 6, 172, 72, 250, 18, 171, 171, 162, 229, 187, 239, 4, 187, 11, 37, 228, 102, 72, 102, 22, 33, 73, 95, 99, 132, 1, 15, 89, 4, 112, 130, 95, 211, 235, 227, 58, 35, 88, 132, 23, 44, 165, 54, 187, 225, },
+            new byte[] { 0, 112, 94, 88, 112, 253, 224, 202, 115, 187, 99, 89, 5, 54, 113, 129, 44, 58, 16, 135, 216, 169, 211, 36, 1, 4, 96, 60, 241, 73, 104, 234, 8, 249, 245, 119, 174, 52, 25, 157, 224, 43, 202, 223, 19, 82, 15, },
+            new byte[] { 0, 76, 164, 229, 92, 79, 168, 219, 110, 104, 21, 220, 74, 19, 199, 195, 100, 93, 191, 43, 213, 72, 56, 138, 161, 125, 187, 119, 250, 189, 137, 190, 76, 126, 247, 93, 30, 132, 6, 58, 213, 208, 165, 224, 152, 133, 91, 61, },
+            new byte[] { 0, 228, 25, 196, 130, 211, 146, 60, 24, 251, 90, 39, 102, 240, 61, 178, 63, 46, 123, 115, 18, 221, 111, 135, 160, 182, 205, 107, 206, 95, 150, 120, 184, 91, 21, 247, 156, 140, 238, 191, 11, 94, 227, 84, 50, 163, 39, 34, 108, },
+            new byte[] { 0, 172, 121, 1, 41, 193, 222, 237, 64, 109, 181, 52, 120, 212, 226, 239, 245, 208, 20, 246, 34, 225, 204, 134, 101, 125, 206, 69, 138, 250, 0, 77, 58, 143, 185, 220, 254, 210, 190, 112, 88, 91, 57, 90, 109, 5, 13, 181, 25, 156, },
+            new byte[] { 0, 232, 125, 157, 161, 164, 9, 118, 46, 209, 99, 203, 193, 35, 3, 209, 111, 195, 242, 203, 225, 46, 13, 32, 160, 126, 209, 130, 160, 242, 215, 242, 75, 77, 42, 189, 32, 113, 65, 124, 69, 228, 114, 235, 175, 124, 170, 215, 232, 133, 205, },
+            new byte[] { 0, 213, 166, 142, 43, 10, 216, 141, 163, 172, 180, 102, 70, 89, 62, 222, 62, 42, 210, 151, 163, 218, 70, 77, 39, 166, 191, 114, 202, 245, 188, 183, 221, 75, 212, 27, 237, 127, 204, 235, 62, 190, 232, 18, 46, 171, 15, 98, 247, 66, 163, 0, },
+            new byte[] { 0, 116, 50, 86, 186, 50, 220, 251, 89, 192, 46, 86, 127, 124, 19, 184, 233, 151, 215, 22, 14, 59, 145, 37, 242, 203, 134, 254, 89, 190, 94, 59, 65, 124, 113, 100, 233, 235, 121, 22, 76, 86, 97, 39, 242, 200, 220, 101, 33, 239, 254, 116, 51, },
+            new byte[] { 0, 122, 214, 231, 136, 199, 11, 6, 205, 124, 72, 213, 117, 187, 60, 147, 201, 73, 75, 33, 146, 171, 247, 118, 208, 157, 177, 203, 235, 83, 45, 226, 202, 229, 168, 7, 57, 237, 235, 200, 124, 106, 254, 165, 14, 147, 0, 57, 42, 31, 178, 213, 173, 103, },
+            new byte[] { 0, 183, 26, 201, 87, 210, 221, 113, 21, 46, 65, 45, 50, 238, 184, 249, 225, 102, 58, 209, 218, 109, 165, 26, 95, 184, 192, 52, 245, 35, 254, 238, 175, 172, 79, 123, 25, 122, 43, 120, 108, 215, 80, 128, 201, 235, 8, 153, 59, 101, 31, 198, 76, 31, 156, },
+            new byte[] { 0, 38, 197, 123, 167, 16, 87, 178, 238, 227, 97, 148, 247, 26, 90, 228, 182, 236, 197, 47, 249, 36, 213, 54, 113, 181, 74, 177, 204, 155, 61, 47, 42, 0, 132, 144, 251, 200, 38, 38, 138, 54, 44, 64, 19, 22, 206, 16, 10, 228, 211, 161, 171, 44, 194, 210, },
+            new byte[] { 0, 106, 120, 107, 157, 164, 216, 112, 116, 2, 91, 248, 163, 36, 201, 202, 229, 6, 144, 254, 155, 135, 208, 170, 209, 12, 139, 127, 142, 182, 249, 177, 174, 190, 28, 10, 85, 239, 184, 101, 124, 152, 206, 96, 23, 163, 61, 27, 196, 247, 151, 154, 202, 207, 20, 61, 10, },
+            new byte[] { 0, 58, 140, 237, 93, 106, 61, 193, 2, 87, 73, 194, 215, 159, 163, 10, 155, 5, 121, 153, 59, 248, 4, 117, 22, 60, 177, 144, 44, 72, 228, 62, 1, 19, 170, 113, 158, 25, 175, 199, 139, 90, 1, 210, 7, 119, 154, 89, 159, 130, 122, 46, 147, 190, 135, 94, 68, 66, },
+            new byte[] { 0, 82, 116, 26, 247, 66, 27, 62, 107, 252, 182, 200, 185, 235, 55, 251, 242, 210, 144, 154, 237, 176, 141, 192, 248, 152, 249, 206, 85, 253, 142, 65, 165, 125, 23, 24, 30, 122, 240, 214, 6, 129, 218, 29, 145, 127, 134, 206, 245, 117, 29, 41, 63, 159, 142, 233, 125, 148, 123, },
+            new byte[] { 0, 57, 115, 232, 11, 195, 217, 3, 206, 77, 67, 29, 166, 180, 106, 118, 203, 17, 69, 152, 213, 74, 44, 49, 43, 98, 61, 253, 122, 14, 43, 209, 143, 9, 104, 107, 171, 224, 57, 254, 251, 226, 232, 221, 194, 240, 117, 161, 82, 178, 246, 178, 33, 50, 86, 215, 239, 180, 180, 181, },
+            new byte[] { 0, 107, 140, 26, 12, 9, 141, 243, 197, 226, 197, 219, 45, 211, 101, 219, 120, 28, 181, 127, 6, 100, 247, 2, 205, 198, 57, 115, 219, 101, 109, 160, 82, 37, 38, 238, 49, 160, 209, 121, 86, 11, 124, 30, 181, 84, 25, 194, 87, 65, 102, 190, 220, 70, 27, 209, 16, 89, 7, 33, 240, },
+            new byte[] { 0, 161, 244, 105, 115, 64, 9, 221, 236, 16, 145, 148, 34, 144, 186, 13, 20, 254, 246, 38, 35, 202, 72, 4, 212, 159, 211, 165, 135, 252, 250, 25, 87, 30, 120, 226, 234, 92, 199, 72, 7, 155, 218, 231, 44, 125, 178, 156, 174, 124, 43, 100, 31, 56, 101, 204, 64, 175, 225, 169, 146, 45, },
+            new byte[] { 0, 65, 202, 113, 98, 71, 223, 248, 118, 214, 94, 0, 122, 37, 23, 2, 228, 58, 121, 7, 105, 135, 78, 243, 118, 70, 76, 223, 89, 72, 50, 70, 111, 194, 17, 212, 126, 181, 35, 221, 117, 235, 11, 229, 149, 147, 123, 213, 40, 115, 6, 200, 100, 26, 246, 182, 218, 127, 215, 36, 186, 110, 106, },
+            new byte[] { 0, 30, 71, 36, 71, 19, 195, 172, 110, 61, 2, 169, 194, 90, 136, 59, 182, 231, 145, 102, 39, 170, 231, 214, 67, 196, 207, 53, 112, 246, 90, 90, 121, 183, 146, 74, 77, 38, 89, 22, 231, 55, 56, 242, 112, 217, 110, 123, 62, 201, 217, 128, 165, 60, 181, 37, 161, 246, 132, 246, 18, 115, 136, 168, },
+            new byte[] { 0, 45, 51, 175, 9, 7, 158, 159, 49, 68, 119, 92, 123, 177, 204, 187, 254, 200, 78, 141, 149, 119, 26, 127, 53, 160, 93, 199, 212, 29, 24, 145, 156, 208, 150, 218, 209, 4, 216, 91, 47, 184, 146, 47, 140, 195, 195, 125, 242, 238, 63, 99, 108, 140, 230, 242, 31, 204, 11, 178, 243, 217, 156, 213, 231, },
+            new byte[] { 0, 137, 158, 247, 240, 37, 238, 214, 128, 99, 218, 46, 138, 198, 128, 92, 219, 109, 139, 166, 25, 66, 67, 14, 58, 238, 149, 177, 195, 221, 154, 171, 48, 80, 12, 59, 190, 228, 19, 55, 208, 92, 112, 229, 37, 60, 10, 47, 81, 0, 192, 37, 171, 175, 147, 128, 73, 166, 61, 149, 12, 24, 95, 70, 113, 40, },
+            new byte[] { 0, 5, 118, 222, 180, 136, 136, 162, 51, 46, 117, 13, 215, 81, 17, 139, 247, 197, 171, 95, 173, 65, 137, 178, 68, 111, 95, 101, 41, 72, 214, 169, 197, 95, 7, 44, 154, 77, 111, 236, 40, 121, 143, 63, 87, 80, 253, 240, 126, 217, 77, 34, 232, 106, 50, 168, 82, 76, 146, 67, 106, 171, 25, 132, 93, 45, 105, },
+            new byte[] { 0, 191, 172, 113, 86, 7, 166, 246, 185, 155, 250, 98, 113, 89, 86, 214, 225, 156, 190, 58, 33, 144, 67, 179, 163, 52, 154, 233, 151, 104, 251, 160, 126, 175, 208, 225, 70, 227, 146, 4, 152, 139, 103, 25, 107, 61, 204, 159, 250, 193, 225, 105, 160, 98, 167, 2, 53, 16, 242, 83, 210, 196, 103, 248, 86, 211, 41, 171, },
+            new byte[] { 0, 247, 159, 223, 33, 224, 93, 77, 70, 90, 160, 32, 254, 43, 150, 84, 101, 190, 205, 133, 52, 60, 202, 165, 220, 203, 151, 93, 84, 15, 84, 253, 173, 160, 89, 227, 52, 199, 97, 95, 231, 52, 177, 41, 125, 137, 241, 166, 225, 118, 2, 54, 32, 82, 215, 175, 198, 43, 238, 235, 27, 101, 184, 127, 3, 5, 8, 163, 238, },
+        };
         #endregion
 
         private ModuleType[,] modules;
