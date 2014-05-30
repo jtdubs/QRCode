@@ -61,7 +61,7 @@ namespace QRCode
     }
 
     /// <summary>
-    /// Helpers functions for showing BitArrays (for debugging)
+    /// Helpers functions for BitArrays
     /// </summary>
     public static class BitArrayHelpers
     {
@@ -78,6 +78,35 @@ namespace QRCode
 
             return sb.ToString();
         }
+
+        public static byte[] ToByteArray(this BitArray bits)
+        {
+            byte[] bytes = new byte[(bits.Length - 1) / 8 + 1];
+            for (int b = 0; b < bits.Length; b++)
+                if (bits[b])
+                    bytes[b / 8] |= (byte)(0x80 >> (b % 8));
+            return bytes;
+        }
+
+        public static BitArray ToBitArray(this byte[] bytes)
+        {
+            var b = new BitArray(8 * bytes.Length, false);
+
+            for (int i = 0; i < b.Length; i++)
+                if ((bytes[i / 8] & (0x80 >> (i % 8))) != 0)
+                    b[i] = true;
+
+            return b;
+        }
+
+        public static BitArray ToBitArray(this int x, int bits)
+        {
+            var b = new BitArray(bits, false);
+            for (int i = 0; i < bits; i++)
+                if ((x & ((1 << (bits - 1)) >> i)) != 0)
+                    b[i] = true;
+            return b;
+        }
     }
 
     /// <summary>
@@ -85,6 +114,7 @@ namespace QRCode
     /// </summary>
     public class QRCode
     {
+        #region Construction
         /// <summary>
         /// Create a QR symbol that represents the supplied `data'.
         /// </summary>
@@ -121,7 +151,9 @@ namespace QRCode
             AddFormatInformation(mask);
             AddVersionInformation();
         }
+        #endregion
 
+        #region External Interface
         /// <summary>
         /// Type of QR symbol (normal or micro)
         /// </summary>
@@ -211,6 +243,7 @@ namespace QRCode
                 }
             }
         }
+        #endregion
 
         #region Steps
         /// <summary>
@@ -315,16 +348,7 @@ namespace QRCode
                 case Mode.Byte:
                     {
                         // retrieve UTF8 encoding of data
-                        var bytes = Encoding.UTF8.GetBytes(data);
-
-                        var b = new BitArray(8 * bytes.Length, false);
-
-                        // encode as a bit array, traversing each byte from MSB to LSB
-                        for (int i = 0; i < b.Length; i++)
-                            if ((bytes[i / 8] & (0x80 >> (i % 8))) != 0)
-                                b[i] = true;
-
-                        bits.Add(b);
+                        bits.Add(Encoding.UTF8.GetBytes(data).ToBitArray());
                     }
                     break;
 
@@ -337,14 +361,7 @@ namespace QRCode
                         {
                             // encode them as a 3-digit decimal number
                             int x = AlphaNumericTable[data[idx]] * 100 + AlphaNumericTable[data[idx + 1]] * 10 + AlphaNumericTable[data[idx + 2]];
-
-                            // convert to a 10-bit array, MSB first
-                            var b = new BitArray(10, false);
-                            for (int i = 0; i < 10; i++)
-                                if ((x & (0x200 >> i)) != 0)
-                                    b[i] = true;
-
-                            bits.Add(b);
+                            bits.Add(x.ToBitArray(10));
                         }
 
                         // if there is a remaining pair of digits
@@ -353,14 +370,7 @@ namespace QRCode
                             // encode them as a 2-digit decimal number
                             int x = AlphaNumericTable[data[idx]] * 10 + AlphaNumericTable[data[idx + 1]];
                             idx += 2;
-
-                            // convert to a 7-bit array, MSB first
-                            var b = new BitArray(7, false);
-                            for (int i = 0; i < 7; i++)
-                                if ((x & (0x40 >> i)) != 0)
-                                    b[i] = true;
-
-                            bits.Add(b);
+                            bits.Add(x.ToBitArray(7));
                         }
 
                         // if there is a remaining digit
@@ -369,14 +379,7 @@ namespace QRCode
                             // encode it as a decimal number
                             int x = AlphaNumericTable[data[idx]];
                             idx += 1;
-
-                            // convert to a 4-bit array, MSB first
-                            var b = new BitArray(4, false);
-                            for (int i = 0; i < 4; i++)
-                                if ((x & (0x08 >> i)) != 0)
-                                    b[i] = true;
-
-                            bits.Add(b);
+                            bits.Add(x.ToBitArray(4));
                         }
                     }
                     break;
@@ -390,14 +393,7 @@ namespace QRCode
                         {
                             // encode them as a single number
                             int x = AlphaNumericTable[data[idx]] * 45 + AlphaNumericTable[data[idx + 1]];
-
-                            // convert to an 11-bit array, MSB first
-                            var b = new BitArray(11, false);
-                            for (int i = 0; i < 11; i++)
-                                if ((x & (0x400 >> i)) != 0)
-                                    b[i] = true;
-
-                            bits.Add(b);
+                            bits.Add(x.ToBitArray(11));
                         }
 
                         // if there is a remaining character
@@ -405,14 +401,7 @@ namespace QRCode
                         {
                             // encode it as a number
                             int x = AlphaNumericTable[data[idx]];
-
-                            // convert to a 6-bit array, MSB first
-                            var b = new BitArray(6, false);
-                            for (int i = 0; i < 6; i++)
-                                if ((x & (0x20 >> i)) != 0)
-                                    b[i] = true;
-
-                            bits.Add(b);
+                            bits.Add(x.ToBitArray(6));
                         }
                     }
                     break;
@@ -465,13 +454,7 @@ namespace QRCode
                 bitIndex += b.Length;
             }
 
-            // convert to code words, remembering that the bit's start from the MSB of each byte
-            byte[] codeWords = new byte[(flattenedBits.Length - 1) / 8 + 1];
-            for (int b = 0; b < flattenedBits.Length; b++)
-                if (flattenedBits[b])
-                    codeWords[b / 8] |= (byte)(0x80 >> (b % 8));
-
-            return codeWords;
+            return new BitArray(flattenedBits).ToByteArray();
         }
 
         /// <summary>
@@ -536,13 +519,7 @@ namespace QRCode
                 foreach (var b in eccBlocks.Where(b => b.Length > i))
                     sequence[finalIndex++] = b[i];
 
-            // convert back to a bitarray, MSB first
-            BitArray result = new BitArray(sequence.Length * 8);
-            for (int i = 0; i < result.Length; i++)
-                if ((sequence[i / 8] & (0x80 >> (i % 8))) != 0)
-                    result[i] = true;
-
-            return result;
+            return sequence.ToBitArray();
         }
 
         /// <summary>
@@ -1207,10 +1184,7 @@ namespace QRCode
             if (count < min || count > max)
                 throw new ArgumentOutOfRangeException("count", String.Format("QR {0} character counts must be in the range {1} <= n <= {2}", Description, min, max));
 
-            var result = new BitArray(bits);
-            for (int i = 0; i < bits; i++)
-                result.Set(i, (count & ((1 << (bits - 1)) >> i)) != 0);
-            return result;
+            return count.ToBitArray(bits);
         }
 
         private int GetCharacterCountBits(Mode mode)
